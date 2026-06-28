@@ -87,7 +87,12 @@ async function readCachedJson(key: string, raw = false): Promise<CacheReadResult
     });
     if (!resp.ok) throw new Error(`Redis HTTP ${resp.status}`);
     const data = (await resp.json()) as { result?: string };
-    if (!data.result) return { status: 'miss' };
+    if (!data.result) {
+      const { getLocalMockDataForKey } = await import('./local-mock-data');
+      const mockValue = getLocalMockDataForKey(key);
+      if (mockValue !== null) return { status: 'hit', value: mockValue };
+      return { status: 'miss' };
+    }
     // Envelope-aware by default — RPC consumers get the bare payload regardless
     // of whether the writer has migrated to contract mode. Legacy shapes pass
     // through unchanged (unwrapEnvelope returns {_seed: null, data: raw}).
@@ -96,6 +101,9 @@ async function readCachedJson(key: string, raw = false): Promise<CacheReadResult
       value: unwrapEnvelope(JSON.parse(data.result)).data,
     };
   } catch (error) {
+    const { getLocalMockDataForKey } = await import('./local-mock-data');
+    const mockValue = getLocalMockDataForKey(key);
+    if (mockValue !== null) return { status: 'hit', value: mockValue };
     return { status: 'error', error };
   }
 }
@@ -134,16 +142,26 @@ export async function getRawJson(key: string): Promise<unknown | null> {
     const { getLocalMockDataForKey } = await import('./local-mock-data');
     return getLocalMockDataForKey(key);
   }
-  const resp = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
-  });
-  if (!resp.ok) throw new Error(`Redis HTTP ${resp.status}`);
-  const data = (await resp.json()) as { result?: string };
-  if (!data.result) return null;
-  // Envelope-aware: contract-mode canonical keys are stored as {_seed, data}.
-  // unwrapEnvelope is a no-op on legacy (non-envelope) shapes.
-  return unwrapEnvelope(JSON.parse(data.result)).data;
+  try {
+    const resp = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
+    });
+    if (!resp.ok) throw new Error(`Redis HTTP ${resp.status}`);
+    const data = (await resp.json()) as { result?: string };
+    if (!data.result) {
+      const { getLocalMockDataForKey } = await import('./local-mock-data');
+      return getLocalMockDataForKey(key);
+    }
+    // Envelope-aware: contract-mode canonical keys are stored as {_seed, data}.
+    // unwrapEnvelope is a no-op on legacy (non-envelope) shapes.
+    return unwrapEnvelope(JSON.parse(data.result)).data;
+  } catch (err) {
+    const { getLocalMockDataForKey } = await import('./local-mock-data');
+    const mockValue = getLocalMockDataForKey(key);
+    if (mockValue !== null) return mockValue;
+    throw err;
+  }
 }
 
 /**
@@ -174,9 +192,16 @@ export async function getCachedRawString(key: string): Promise<string | null> {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const { getLocalMockDataForKey } = await import('./local-mock-data');
+      const mockValue = getLocalMockDataForKey(key);
+      return mockValue ? JSON.stringify(mockValue) : null;
+    }
     const data = (await resp.json()) as { result?: string | null };
-    return typeof data.result === 'string' && data.result.length > 0 ? data.result : null;
+    if (typeof data.result === 'string' && data.result.length > 0) return data.result;
+    const { getLocalMockDataForKey } = await import('./local-mock-data');
+    const mockValue = getLocalMockDataForKey(key);
+    return mockValue ? JSON.stringify(mockValue) : null;
   } catch (err) {
     // AbortSignal.timeout() throws DOMException name='TimeoutError' (on V8
     // runtimes incl. Vercel Edge); manual controller.abort() throws 'AbortError'.
@@ -184,7 +209,9 @@ export async function getCachedRawString(key: string): Promise<string | null> {
     const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
     if (isTimeout) console.error(`[REDIS-TIMEOUT] getCachedRawString key=${key} timeoutMs=${REDIS_OP_TIMEOUT_MS}`);
     else console.warn('[redis] getCachedRawString failed:', errMsg(err));
-    return null;
+    const { getLocalMockDataForKey } = await import('./local-mock-data');
+    const mockValue = getLocalMockDataForKey(key);
+    return mockValue ? JSON.stringify(mockValue) : null;
   }
 }
 
@@ -325,25 +352,33 @@ export async function getCachedJsonBatch(keys: string[]): Promise<Map<string, un
       body: JSON.stringify(pipeline),
       signal: AbortSignal.timeout(REDIS_PIPELINE_TIMEOUT_MS),
     });
-    if (!resp.ok) return result;
-
-    const data = (await resp.json()) as Array<{ result?: string }>;
-    for (let i = 0; i < keys.length; i++) {
-      const raw = data[i]?.result;
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed === NEG_SENTINEL) continue;
-          // Envelope-aware: unwrap contract-mode canonical keys; legacy values
-          // pass through.
-          result.set(keys[i]!, unwrapEnvelope(parsed).data);
-        } catch {
-          /* skip malformed */
+    if (resp.ok) {
+      const data = (await resp.json()) as Array<{ result?: string }>;
+      for (let i = 0; i < keys.length; i++) {
+        const raw = data[i]?.result;
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed === NEG_SENTINEL) continue;
+            // Envelope-aware: unwrap contract-mode canonical keys; legacy values
+            // pass through.
+            result.set(keys[i]!, unwrapEnvelope(parsed).data);
+          } catch {
+            /* skip malformed */
+          }
         }
       }
     }
   } catch (err) {
     console.warn('[redis] getCachedJsonBatch failed:', errMsg(err));
+  }
+
+  const { getLocalMockDataForKey } = await import('./local-mock-data');
+  for (const k of keys) {
+    if (!result.has(k)) {
+      const mockValue = getLocalMockDataForKey(k);
+      if (mockValue !== null) result.set(k, mockValue);
+    }
   }
   return result;
 }

@@ -223,36 +223,31 @@ async function getCachedJsonBatch(keys) {
   const result = new Map();
   if (keys.length === 0) return result;
 
-  // Always read unprefixed keys — bootstrap is a read-only consumer of
-  // production cache data. Preview/branch deploys don't run handlers that
-  // populate prefixed keys, so prefixing would always miss.
   const pipeline = keys.map((k) => ['GET', k]);
   const data = await redisPipeline(pipeline, 3000);
-  if (!data) {
-    try {
-      const { getLocalMockDataForKey } = await import('../server/_shared/local-mock-data.ts');
-      for (const k of keys) {
+  if (data) {
+    for (let i = 0; i < keys.length; i++) {
+      const raw = data[i]?.result;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed === NEG_SENTINEL) continue;
+          result.set(keys[i], unwrapEnvelope(parsed).data);
+        } catch { /* skip malformed */ }
+      }
+    }
+  }
+
+  try {
+    const { getLocalMockDataForKey } = await import('../server/_shared/local-mock-data.ts');
+    for (const k of keys) {
+      if (!result.has(k)) {
         const mockVal = getLocalMockDataForKey(k);
         if (mockVal !== null) result.set(k, mockVal);
       }
-    } catch (err) {
-      console.error('[bootstrap] Mock data import error:', err);
     }
-    return result;
-  }
-
-  for (let i = 0; i < keys.length; i++) {
-    const raw = data[i]?.result;
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed === NEG_SENTINEL) continue;
-        // Envelope-aware: bootstrap is a public-boundary consumer — strip _seed
-        // from contract-mode canonical keys so clients never see envelope
-        // metadata. Legacy bare-shape values pass through unchanged.
-        result.set(keys[i], unwrapEnvelope(parsed).data);
-      } catch { /* skip malformed */ }
-    }
+  } catch (err) {
+    console.error('[bootstrap] Mock data import error:', err);
   }
   return result;
 }
