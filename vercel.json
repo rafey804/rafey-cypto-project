@@ -1,10 +1,4 @@
 {
-  "crons": [
-    {
-      "path": "/api/market/v1/broadcast-whatsapp",
-      "schedule": "* * * * *"
-    }
-  ],
   "redirects": [
     { "source": "/docs", "destination": "/docs/documentation", "permanent": false },
     { "source": "/security.txt", "destination": "/.well-known/security.txt", "permanent": true },
