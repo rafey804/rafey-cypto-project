@@ -34,11 +34,11 @@ Perform a deep, comprehensive market impact analysis and explain exactly what is
     const aiAnalysis = aiResult?.content || `Real-time Summary: ${cryptoSummary}. ${goldSummary}. Market impact analysis currently operating in streamlined mode.`;
 
     // 3. Prepare Telegram / Twilio REST API broadcast
-    const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-    const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+    const telegramToken = (process.env.TELEGRAM_BOT_TOKEN || '8718094603:AAFgfSk5nl2D7Ura9mlc9ASBc2mo4FgSiaI').trim();
+    const telegramChatId = (process.env.TELEGRAM_CHAT_ID || '7782980175').trim();
 
     if (telegramToken && telegramChatId) {
-      const tgApiHost = process.env.TELEGRAM_API_HOST || 'https://api.telegram.org';
+      const tgApiHost = (process.env.TELEGRAM_API_HOST || 'https://api.telegram.org').trim();
       const telegramUrl = `${tgApiHost}/bot${telegramToken}/sendMessage`;
       try {
         const tgResponse = await fetch(telegramUrl, {
