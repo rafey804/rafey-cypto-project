@@ -22,11 +22,11 @@ export async function broadcastWhatsAppNews(
     const goldSummary = `Gold USD: $${goldData.goldPrice ?? 2450.5} (${goldData.goldChangePct ?? 0}%), Drivers: ${(goldData.drivers ?? []).map(d => `${d.label}: ${d.value}`).join('; ')}`;
 
     // 2. Perform AI impact analysis with callLlm
-    const prompt = `Analyze the following real-time market updates for Gold and Crypto (BTC).
+    const prompt = `You are a world-class professional Crypto & Gold AI Analyst. Analyze the following real-time market updates for Gold and Crypto (BTC, ETH, SOL, etc.).
 Crypto Feed: ${cryptoSummary}
 Gold Feed: ${goldSummary}
 
-Provide a concise, professional summary and explicitly explain the market impact in clear English/Urdu terms answering: 'What will be the impact of this news on the market (is news sy market pr kiya asr hu ga)?' Keep it formatted beautifully for a WhatsApp broadcast.`;
+Perform a deep, comprehensive market impact analysis and explain exactly what is happening in the market right now. You MUST explicitly answer in clear, beautiful English and Roman Urdu: 'What will be the impact of these events on the market? (Is se market pr kya asar hoga? Trading me kya karna chahiye?)'. Keep it formatted beautifully with engaging emojis for Telegram and WhatsApp broadcasts.`;
 
     const aiResult = await callLlm({
       messages: [{ role: 'user', content: prompt }],

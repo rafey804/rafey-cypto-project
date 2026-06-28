@@ -10,7 +10,12 @@
     { "src": "api/rss-proxy.js", "use": "@vercel/node" },
     { "src": "api/user-prefs.ts", "use": "@vercel/node" }
   ],
-  "crons": [],
+  "crons": [
+    {
+      "path": "/api/market/v1/broadcast-whatsapp",
+      "schedule": "0 * * * *"
+    }
+  ],
   "redirects": [
     { "source": "/docs", "destination": "/docs/documentation", "permanent": false },
     { "source": "/security.txt", "destination": "/.well-known/security.txt", "permanent": true },
