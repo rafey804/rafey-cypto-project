@@ -12,7 +12,7 @@ interface BroadcastCache {
 
 // In-memory cache fallback for instant checks between cold starts
 let lastBroadcastMemoryCache: BroadcastCache | null = null;
-const CACHE_KEY = 'market:last-broadcast:v5';
+const CACHE_KEY = 'market:last-broadcast:v7';
 
 export async function broadcastWhatsAppNews(
   _ctx: ServerContext,
@@ -24,23 +24,20 @@ export async function broadcastWhatsAppNews(
     let btcChange = 0;
     let goldPrice = 0, goldChange = 0;
 
-    const [binanceRes, mexcRes, bybitRes, kucoinRes] = await Promise.allSettled([
-      fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22PAXGUSDT%22%5D'),
+    const [binanceRes, mexcRes, bybitRes, kucoinRes, xauRes] = await Promise.allSettled([
+      fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
       fetch('https://api.mexc.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
       fetch('https://api.bybit.com/v5/market/tickers?category=spot&symbol=BTCUSDT'),
-      fetch('https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=BTC-USDT')
+      fetch('https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=BTC-USDT'),
+      fetch('https://min-api.cryptocompare.com/data/pricemultifull?fsyms=XAU&tsyms=USD')
     ]);
 
-    // Parse Binance (BTC & PAXG Gold)
+    // Parse Binance BTC
     if (binanceRes.status === 'fulfilled' && binanceRes.value.ok) {
       try {
-        const data = await binanceRes.value.json() as any[];
-        for (const item of data) {
-          const p = parseFloat(item.lastPrice || '0');
-          const c = parseFloat(item.priceChangePercent || '0');
-          if (item.symbol === 'BTCUSDT') { binanceBtc = p; btcChange = c; }
-          if (item.symbol === 'PAXGUSDT') { goldPrice = p; goldChange = c; }
-        }
+        const data = await binanceRes.value.json() as { lastPrice?: string, priceChangePercent?: string };
+        binanceBtc = parseFloat(data.lastPrice || '0');
+        btcChange = parseFloat(data.priceChangePercent || '0');
       } catch {}
     }
 
@@ -68,10 +65,29 @@ export async function broadcastWhatsAppNews(
       } catch {}
     }
 
+    // Parse XAU/USD Spot Gold
+    if (xauRes.status === 'fulfilled' && xauRes.value.ok) {
+      try {
+        const data = await xauRes.value.json() as { RAW?: { XAU?: { USD?: { PRICE?: number, CHANGEPCT24HOUR?: number } } } };
+        if (data.RAW?.XAU?.USD) {
+          goldPrice = data.RAW.XAU.USD.PRICE || 0;
+          goldChange = data.RAW.XAU.USD.CHANGEPCT24HOUR || 0;
+        }
+      } catch {}
+    }
+
     // Calculate Strong Consensus Global Price
     const validPrices = [binanceBtc, mexcBtc, bybitBtc, kucoinBtc].filter(p => p > 0);
     const consensusBtcPrice = validPrices.length > 0 ? validPrices.reduce((a, b) => a + b, 0) / validPrices.length : 63850.50;
-    if (!goldPrice) goldPrice = 2465.80;
+    if (!goldPrice) goldPrice = 2468.50; // Fallback Spot XAU/USD price
+
+    // Weekend Check for XAU/USD Gold Market (Saturday & Sunday Off)
+    const nowObj = new Date();
+    const dayOfWeek = nowObj.getUTCDay(); // 0 = Sunday, 1 = Monday... 6 = Saturday
+    const utcHours = nowObj.getUTCHours();
+    // Commodities market closes Friday 22:00 UTC and reopens Sunday 22:00 UTC
+    const isGoldMarketClosed = (dayOfWeek === 6) || (dayOfWeek === 0 && utcHours < 22) || (dayOfWeek === 5 && utcHours >= 22);
+    const goldStatusText = isGoldMarketClosed ? 'Market Closed (Weekend Off - Showing Friday Close Price)' : 'Market Open (Active Spot Trading)';
 
     // 2. Multi-Timeframe Klines Fetch (15m, 30m, 1h, 4h, 1d) for Top-Down Market Structure Analysis
     let tfSummary = { m15: '0%', m30: '0%', h1: '0%', h4: '0%', d1: '0%' };
@@ -99,17 +115,45 @@ export async function broadcastWhatsAppNews(
       };
     } catch {}
 
-    // 3. Fetch Real-time Breaking News & Twitter/Social Buzz
-    let latestNewsHeadline = 'No major breaking news or executive tweets in the last hour.';
+    // 3. Real-Time Twitter/X & Breaking News Engine (Trump, Elon Musk, Fed, SEC, Saylor)
+    let latestNewsHeadline = 'No major breaking tweets or executive news in the last hour.';
     let rawNewsTitleForCache = '';
+    let isMajorInfluencerTweet = false;
+
     try {
-      const newsRes = await fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
-      if (newsRes.ok) {
-        const newsData = await newsRes.json() as { Data?: { title?: string, body?: string, source?: string }[] };
-        if (newsData.Data && newsData.Data.length > 0) {
-          const firstItem = newsData.Data[0];
-          rawNewsTitleForCache = (firstItem.title || '').trim();
-          latestNewsHeadline = `[${firstItem.source || 'Crypto News/Twitter'}] ${firstItem.title} - ${firstItem.body?.slice(0, 150)}...`;
+      // Fetch simultaneously from Coinpaprika Twitter API & CryptoCompare News API
+      const [twitterRes, newsRes] = await Promise.allSettled([
+        fetch('https://api.coinpaprika.com/v1/coins/btc-bitcoin/twitter'),
+        fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN')
+      ]);
+
+      let foundTweetText = '';
+      let foundNewsText = '';
+
+      if (twitterRes.status === 'fulfilled' && twitterRes.value.ok) {
+        const tData = await twitterRes.value.json() as { status?: string, user_name?: string }[];
+        if (tData && tData.length > 0 && tData[0].status) {
+          foundTweetText = `[X/Tweet by ${tData[0].user_name || 'CryptoWhale'}] ${tData[0].status}`;
+        }
+      }
+
+      if (newsRes.status === 'fulfilled' && newsRes.value.ok) {
+        const nData = await newsRes.value.json() as { Data?: { title?: string, body?: string, source?: string }[] };
+        if (nData.Data && nData.Data.length > 0) {
+          foundNewsText = `[${nData.Data[0].source || 'Macro News'}] ${nData.Data[0].title} - ${nData.Data[0].body?.slice(0, 100)}...`;
+        }
+      }
+
+      // Prioritize breaking tweets/news containing major influencers or macro keywords
+      const combinedText = foundTweetText || foundNewsText;
+      if (combinedText) {
+        rawNewsTitleForCache = combinedText.slice(0, 100);
+        latestNewsHeadline = combinedText;
+        
+        const lowerText = combinedText.toLowerCase();
+        const influencerKeywords = ['trump', 'elon', 'musk', 'powell', 'fed', 'sec', 'gensler', 'saylor', 'rate', 'war', 'emergency', 'liquidate', 'whale', 'blackrock'];
+        if (influencerKeywords.some(kw => lowerText.includes(kw))) {
+          isMajorInfluencerTweet = true;
         }
       }
     } catch {}
@@ -165,7 +209,7 @@ export async function broadcastWhatsAppNews(
     if (bidRatio > 65 && btcChange < 0 && bidSpoofingIndex <= 0.50) liquiditySweepDetected = true; // True sweep requires real inner liquidity
     if (bidRatio < 35 && btcChange > 0 && askSpoofingIndex <= 0.50) liquiditySweepDetected = true;
 
-    // 5. Strict Persistent Anti-Repetition & Instant Breaking News Trigger
+    // 5. Strict Persistent Anti-Repetition & Instant Breaking Tweet Trigger
     const now = Date.now();
     let cached = lastBroadcastMemoryCache;
     if (!cached) {
@@ -180,43 +224,44 @@ export async function broadcastWhatsAppNews(
       const priceDiff = Math.abs(consensusBtcPrice - cached.btcPrice);
       const timeDiffMinutes = (now - cached.time) / (1000 * 60);
       
-      // Triggers: $150+ price move, brand new breaking news/tweet, macro trend shift, or 45 mins regular update
+      // Triggers: Brand new tweet from Trump/Musk/Fed, $150+ price move, macro trend shift, or 45 mins regular update
       const currentMacro = `${tfSummary.h4}:${tfSummary.d1}`;
       const isMajorPriceMove = priceDiff >= 150;
-      const isNewBreakingNews = rawNewsTitleForCache && cached.latestNewsTitle && rawNewsTitleForCache !== cached.latestNewsTitle;
+      const isNewBreakingTweet = rawNewsTitleForCache && cached.latestNewsTitle && rawNewsTitleForCache !== cached.latestNewsTitle;
       const isMacroTrendShift = currentMacro !== cached.macroTrend;
       const isScheduledTimeElapsed = timeDiffMinutes >= 45;
 
-      const isSignificantEvent = isMajorPriceMove || isNewBreakingNews || isMacroTrendShift || isScheduledTimeElapsed;
+      const isSignificantEvent = isMajorPriceMove || isNewBreakingTweet || isMacroTrendShift || isScheduledTimeElapsed;
 
       if (!isSignificantEvent) {
         return {
           success: true,
           status: 'skipped',
           reason: 'duplicate_prevention',
-          message: `No new breaking news/tweets, macro shifts, or major price moves detected (BTC diff: $${priceDiff.toFixed(2)}, last broadcast: ${timeDiffMinutes.toFixed(1)} mins ago). Suppressing duplicate alert.`
+          message: `No new breaking tweets (Trump/Fed/Musk), macro shifts, or major price moves detected (BTC diff: $${priceDiff.toFixed(2)}, last broadcast: ${timeDiffMinutes.toFixed(1)} mins ago). Suppressing duplicate alert.`
         };
       }
     }
 
-    // 6. Perform AI impact analysis with callLlm - Super-Advanced Quant & Spoofing Prompt
+    // 6. Perform AI impact analysis with callLlm - Super-Advanced Quant & Tweet Impact Prompt
     const prompt = `You are an elite Wall Street Crypto & Gold Quantitative Trading Executive. Analyze the following verified multi-source data:
 1. Multi-Exchange Consensus BTC Spot Price: $${consensusBtcPrice.toFixed(2)} (${btcChange}%) [Sources: Binance, MEXC, Bybit, KuCoin]
-2. Gold Spot Price (PAXG/USD Pegged): $${goldPrice.toFixed(2)} (${goldChange}%)
+2. Gold Spot Price (XAU/USD Spot Gold): $${goldPrice.toFixed(2)} (${goldChange}%) [Market Status: ${goldStatusText}]
 3. Multi-Timeframe Top-Down Structure: 15m (${tfSummary.m15}), 30m (${tfSummary.m30}), 1H (${tfSummary.h1}), 4H (${tfSummary.h4}), 1D (${tfSummary.d1})
-4. Live Breaking News & Social/Twitter Buzz: "${latestNewsHeadline}"
+4. Live Breaking Twitter/X & Macro Buzz: "${latestNewsHeadline}" (Is Major Influencer Tweet/News: ${isMajorInfluencerTweet ? 'YES' : 'NO'})
 5. Advanced Order Book Math & Spoofing Detection: Bids ${bidRatio.toFixed(1)}%, Asks ${(100 - bidRatio).toFixed(1)}%. Spoofing Index Status: "${spoofingStatus}". Liquidity Sweep Confirmed: ${liquiditySweepDetected ? 'Yes' : 'No'}.
 
 CRITICAL INSTRUCTIONS:
-1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'BTC ki multi-timeframe analysis (15m se 1D) confirm kar rahi hai... order book me real liquidity hai / fake walls hain...'). Do NOT use pure English or Arabic/Urdu script (اردو).
+1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'Donald Trump ki tweet X par aayi hai jiska market par bada impact hai... XAU/USD Gold ki market weekend par off hai...'). Do NOT use pure English or Arabic/Urdu script (اردو).
 2. Keep the message ULTRA-SHORT, concise, and highly professional (maximum 4 to 5 short lines/bullet points).
-3. Focus ONLY on BTC and Gold. State the clear Trade Direction based on the 5 timeframes and confirm whether the order book has REAL liquidity or FAKE whale spoofing orders.
-4. If there is an important breaking news headline or influential tweet (e.g. Trump, Fed, SEC), highlight its impact immediately in 1 sentence.`;
+3. If there is a live breaking tweet or news headline (especially Trump, Elon Musk, Fed, SEC, Saylor), your VERY FIRST SENTENCE MUST summarize the tweet/news and explain its immediate market impact in Roman Urdu.
+4. Focus ONLY on BTC and XAU/USD Gold. NEVER mention PAXG. State the clear Trade Direction for BTC based on the 5 timeframes and confirm whether the order book has REAL liquidity or FAKE whale spoofing orders.
+5. If XAU/USD market is closed (Weekend Off), explicitly state in Roman Urdu that XAU/USD Gold market is closed for the weekend so focus entirely on BTC trading.`;
 
     const aiResult = await callLlm({
       messages: [{ role: 'user', content: prompt }],
     });
-    const aiAnalysis = aiResult?.content || `🚨 Market Update: Consensus BTC $${consensusBtcPrice.toFixed(2)}, Gold $${goldPrice}. Timeframes (15m-1D): ${tfSummary.h4}. Spoofing Status: ${spoofingStatus}. News: ${latestNewsHeadline.slice(0, 60)}...`;
+    const aiAnalysis = aiResult?.content || `🚨 Market Update: Consensus BTC $${consensusBtcPrice.toFixed(2)}, XAU/USD Gold $${goldPrice} (${goldStatusText}). Timeframes (15m-1D): ${tfSummary.h4}. Spoofing Status: ${spoofingStatus}. Buzz: ${latestNewsHeadline.slice(0, 60)}...`;
 
     // Second layer of anti-repetition: verify AI text
     const currentSnippet = aiAnalysis.slice(0, 40);
