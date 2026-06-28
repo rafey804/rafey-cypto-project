@@ -36,8 +36,9 @@ import { getInsiderTransactions } from './get-insider-transactions';
 import { getMarketBreadthHistory } from './get-market-breadth-history';
 import { getGoldIntelligence } from './get-gold-intelligence';
 import { getHyperliquidFlow } from './get-hyperliquid-flow';
+import { broadcastWhatsAppNews } from './broadcast-whatsapp';
 
-export const marketHandler: MarketServiceHandler = {
+export const marketHandler: any = {
   listMarketQuotes,
   listCryptoQuotes,
   listCommodityQuotes,
@@ -61,4 +62,5 @@ export const marketHandler: MarketServiceHandler = {
   getMarketBreadthHistory,
   getGoldIntelligence,
   getHyperliquidFlow,
+  broadcastWhatsAppNews,
 };

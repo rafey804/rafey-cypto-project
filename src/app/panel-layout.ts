@@ -1967,6 +1967,38 @@ export class PanelLayoutManager implements AppModule {
       }
     }
 
+    if (SITE_VARIANT !== 'happy') {
+      const traderPanels = [
+        'crypto',
+        'gold-intelligence',
+        'commodities',
+        'macro-signals',
+        'fear-greed',
+        'etf-flows',
+        'stablecoins',
+        'liquidity-shifts',
+        'markets',
+      ];
+      // Ensure all trader panels are enabled in panelSettings
+      traderPanels.forEach(pKey => {
+        if (!this.ctx.panelSettings[pKey]) {
+          this.ctx.panelSettings[pKey] = ALL_PANELS[pKey] ?? { name: pKey, enabled: true, priority: 1 };
+        }
+        if (!allOrder.includes(pKey)) {
+          allOrder.push(pKey);
+        }
+      });
+      // Move them to the very top in exact order
+      for (let i = traderPanels.length - 1; i >= 0; i--) {
+        const pKey = traderPanels[i]!;
+        const idx = allOrder.indexOf(pKey);
+        if (idx !== -1) {
+          allOrder.splice(idx, 1);
+          allOrder.unshift(pKey);
+        }
+      }
+    }
+
     this.resolvedPanelOrder = allOrder;
 
     const sidebarOrder = effectiveUltraWide

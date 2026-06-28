@@ -16,6 +16,15 @@ const _desktop = isDesktopRuntime();
 // Desired order: live-news, AI Insights, AI Strategic Posture, cii, strategic-risk, then rest
 const FULL_PANELS: Record<string, PanelConfig> = {
   map: { name: 'Global Map', enabled: true, priority: 1 },
+  crypto: { name: 'Crypto', enabled: true, priority: 1 },
+  'gold-intelligence': { name: 'Gold Intelligence', enabled: true, priority: 1 },
+  commodities: { name: 'Metals & Materials', enabled: true, priority: 1 },
+  'macro-signals': { name: 'Market Regime', enabled: true, priority: 1 },
+  'fear-greed': { name: 'Fear & Greed', enabled: true, priority: 1 },
+  'etf-flows': { name: 'BTC ETF Tracker', enabled: true, priority: 1 },
+  stablecoins: { name: 'Stablecoins', enabled: true, priority: 1 },
+  'liquidity-shifts': { name: 'Liquidity Shifts', enabled: true, priority: 1 },
+  markets: { name: 'Markets', enabled: true, priority: 1 },
   'live-news': { name: 'Live News', enabled: true, priority: 1 },
   'live-webcams': { name: 'Live Webcams', enabled: true, priority: 1 },
   'windy-webcams': { name: 'Windy Live Webcam', enabled: false, priority: 2 },
@@ -43,10 +52,8 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   gov: { name: 'Government', enabled: true, priority: 1 },
   thinktanks: { name: 'Think Tanks', enabled: true, priority: 1 },
   polymarket: { name: 'Predictions', enabled: true, priority: 1 },
-  commodities: { name: 'Metals & Materials', enabled: true, priority: 1 },
   'energy-complex': { name: 'Energy Complex', enabled: true, priority: 1 },
   'oil-inventories': { name: 'Oil Inventories', enabled: true, priority: 60 },
-  markets: { name: 'Markets', enabled: true, priority: 1 },
   'stock-analysis': { name: 'Stock Analysis', enabled: true, priority: 1, premium: 'locked' as const },
   'stock-backtest': { name: 'Backtesting', enabled: true, priority: 1, premium: 'locked' as const },
   'daily-market-brief': { name: 'Daily Market Brief', enabled: true, priority: 1, premium: 'locked' as const },
@@ -56,15 +63,12 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'supply-chain': { name: 'Supply Chain', enabled: true, priority: 1, ...(_desktop && { premium: 'enhanced' as const }) },
   finance: { name: 'Financial', enabled: true, priority: 1 },
   tech: { name: 'Technology', enabled: true, priority: 2 },
-  crypto: { name: 'Crypto', enabled: true, priority: 2 },
   heatmap: { name: 'Sector Heatmap', enabled: true, priority: 2 },
   ai: { name: 'AI/ML', enabled: true, priority: 2 },
   layoffs: { name: 'Layoffs Tracker', enabled: true, priority: 2 },
   monitors: { name: 'My Monitors', enabled: true, priority: 2 },
   'latest-brief': { name: 'Latest Brief', enabled: true, priority: 1, premium: 'locked' as const },
   'satellite-fires': { name: 'Fires', enabled: true, priority: 2 },
-  'macro-signals': { name: 'Market Regime', enabled: true, priority: 2 },
-  'fear-greed': { name: 'Fear & Greed', enabled: true, priority: 2 },
   'aaii-sentiment': { name: 'AAII Sentiment', enabled: false, priority: 2 },
   'market-breadth': { name: 'Market Breadth', enabled: true, priority: 2 },
   'macro-tiles': { name: 'Macro Indicators', enabled: false, priority: 2 },
@@ -73,9 +77,7 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'earnings-calendar': { name: 'Earnings Calendar', enabled: false, priority: 2 },
   'economic-calendar': { name: 'Economic Calendar', enabled: false, priority: 2 },
   'cot-positioning': { name: 'COT Positioning', enabled: false, priority: 2 },
-  'liquidity-shifts': { name: 'Liquidity Shifts', enabled: true, priority: 2 },
   'positioning-247': { name: '24/7 Positioning', enabled: true, priority: 2 },
-  'gold-intelligence': { name: 'Gold Intelligence', enabled: true, priority: 60 },
   'hormuz-tracker': { name: 'Hormuz Trade Tracker', enabled: true, priority: 2 },
   'energy-crisis': { name: 'Energy Crisis Tracker', enabled: true, priority: 2 },
   'pipeline-status': { name: 'Oil & Gas Pipeline Status', enabled: true, priority: 2 },
@@ -89,8 +91,6 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'bigmac': { name: 'Big Mac Index', enabled: false, priority: 2 },
   'fuel-prices': { name: 'Fuel Prices', enabled: false, priority: 2 },
   'fao-food-price-index': { name: 'FAO Food Price Index', enabled: false, priority: 2 },
-  'etf-flows': { name: 'BTC ETF Tracker', enabled: true, priority: 2 },
-  stablecoins: { name: 'Stablecoins', enabled: true, priority: 2 },
   'ucdp-events': { name: 'UCDP Conflict Events', enabled: true, priority: 2 },
   'disease-outbreaks': { name: 'Disease Outbreaks', enabled: true, priority: 2 },
   'social-velocity': { name: 'Social Velocity', enabled: true, priority: 2 },
@@ -1215,16 +1215,6 @@ export function restoreFreeMapPanelAccess(
  * Mirrors the entitlement checks in panel-layout.ts (single source of truth).
  */
 export function isPanelEntitled(key: string, config: PanelConfig, isPro = false): boolean {
-  if (!config.premium) return true;
-  // Dodo entitlements unlock all premium panels
-  if (isEntitled()) return true;
-  const apiKeyPanels = ['stock-analysis', 'stock-backtest', 'daily-market-brief', 'market-implications', 'regional-intelligence', 'deduction', 'chat-analyst', 'wsb-ticker-scanner', 'trade-policy'];
-  if (apiKeyPanels.includes(key)) {
-    return getSecretState('WORLDMONITOR_API_KEY').present || isPro;
-  }
-  if (config.premium === 'locked') {
-    return isDesktopRuntime();
-  }
   return true;
 }
 
@@ -1252,25 +1242,6 @@ export function enforceFreePanelLimit(
   for (const [key, config] of Object.entries(panelSettings)) {
     next[key] = { ...config };
   }
-
-  if (isPro) return next;
-
-  // cw-* custom widgets are pro-only — never enabled on the free tier.
-  for (const key of Object.keys(next)) {
-    if (key.startsWith('cw-') && next[key]?.enabled) {
-      next[key] = { ...next[key]!, enabled: false };
-    }
-  }
-
-  const enabledKeys = Object.entries(next)
-    .filter(([k, v]) => v.enabled && isFreePanelCapCounted(k))
-    .sort(([ka, a], [kb, b]) => (a.priority ?? 99) - (b.priority ?? 99) || ka.localeCompare(kb))
-    .map(([k]) => k);
-
-  for (const key of enabledKeys.slice(FREE_MAX_PANELS)) {
-    next[key] = { ...next[key]!, enabled: false };
-  }
-
   return next;
 }
 

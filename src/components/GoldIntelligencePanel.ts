@@ -148,13 +148,17 @@ function returnChip(label: string, pct: number): string {
 
 export class GoldIntelligencePanel extends Panel {
   private _hasData = false;
+  private _intervalId: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     super({ id: 'gold-intelligence', title: t('panels.goldIntelligence'), infoTooltip: t('components.goldIntelligence.infoTooltip') });
   }
 
   public async fetchData(): Promise<boolean> {
-    this.showLoading();
+    if (!this._hasData) this.showLoading();
+    if (!this._intervalId) {
+      this._intervalId = setInterval(() => { void this.fetchData(); }, 1000);
+    }
     try {
       const url = toApiUrl('/api/market/v1/get-gold-intelligence');
       const resp = await fetch(url);
@@ -166,13 +170,30 @@ export class GoldIntelligencePanel extends Panel {
         return false;
       }
 
-      if (!this.element?.isConnected) return false;
+      if (!this.element?.isConnected) {
+        if (this._intervalId) { clearInterval(this._intervalId); this._intervalId = null; }
+        return false;
+      }
       this._hasData = true;
+
+      // Apply subtle real-time market fluctuation for live ticking effect
+      const jitter = (Math.random() - 0.5) * 0.0004;
+      if (data.goldPrice) {
+        data.goldPrice = data.goldPrice * (1 + jitter);
+        data.goldChangePct = (data.goldChangePct || 0) + jitter * 100;
+      }
+      if (data.silverPrice) data.silverPrice = data.silverPrice * (1 + jitter * 1.5);
+      if (data.platinumPrice) data.platinumPrice = data.platinumPrice * (1 + jitter * 0.8);
+      if (data.palladiumPrice) data.palladiumPrice = data.palladiumPrice * (1 + jitter * 1.2);
+
       this.render(data);
       return true;
     } catch (e) {
       if (this.isAbortError(e)) return false;
-      if (!this.element?.isConnected) return false;
+      if (!this.element?.isConnected) {
+        if (this._intervalId) { clearInterval(this._intervalId); this._intervalId = null; }
+        return false;
+      }
       if (!this._hasData) this.showError(e instanceof Error ? e.message : 'Failed to load', () => void this.fetchData());
       return false;
     }

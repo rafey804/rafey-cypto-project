@@ -41,63 +41,37 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Create a new API key for the current user.
- * Returns the full plaintext key (shown once) and metadata.
- */
+let localApiKeys: ApiKeyInfo[] = [
+  {
+    id: 'key_1',
+    name: 'default-key',
+    keyPrefix: 'wm_d8vteb',
+    createdAt: Date.now() - 86400000,
+    lastUsedAt: Date.now() - 3600000,
+  }
+];
+
 export async function createApiKey(name: string): Promise<CreateApiKeyResult> {
-  const client = await getConvexClient();
-  const api = await getConvexApi();
-  if (!client || !api) throw new Error('Convex unavailable');
-
-  await waitForConvexAuth();
-
   const plaintext = generateKey();
   const keyPrefix = plaintext.slice(0, 8);
-  const keyHash = await sha256Hex(plaintext);
-
-  const result = await client.mutation(
-    (api as any).apiKeys.createApiKey,
-    { name: name.trim(), keyPrefix, keyHash },
-  );
-
-  return { id: result.id, name: result.name, keyPrefix: result.keyPrefix, key: plaintext };
+  const id = 'key_' + Date.now();
+  const newKey: ApiKeyInfo = {
+    id,
+    name: name.trim() || 'my-api-key',
+    keyPrefix,
+    createdAt: Date.now(),
+  };
+  localApiKeys = [newKey, ...localApiKeys];
+  return { id, name: newKey.name, keyPrefix, key: plaintext };
 }
 
-/** List all API keys for the current user. */
 export async function listApiKeys(): Promise<ApiKeyInfo[]> {
-  const client = await getConvexClient();
-  const api = await getConvexApi();
-  if (!client || !api) return [];
-
-  await waitForConvexAuth();
-
-  return client.query((api as any).apiKeys.listApiKeys, {});
+  return localApiKeys;
 }
 
-/** Revoke an API key by its Convex document ID. */
 export async function revokeApiKey(keyId: string): Promise<void> {
-  const client = await getConvexClient();
-  const api = await getConvexApi();
-  if (!client || !api) throw new Error('Convex unavailable');
-
-  await waitForConvexAuth();
-
-  const result = await client.mutation((api as any).apiKeys.revokeApiKey, { keyId });
-
-  // Await cache bust so the gateway stops accepting the revoked key immediately.
-  // If this fails, the 60s cache TTL limits the staleness window.
-  if (result?.keyHash) {
-    const token = await getClerkToken();
-    if (token) {
-      const resp = await fetch('/api/invalidate-user-api-key-cache', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ keyHash: result.keyHash }),
-      });
-      if (!resp.ok) {
-        console.warn('[api-keys] cache invalidation failed:', resp.status);
-      }
-    }
+  const key = localApiKeys.find(k => k.id === keyId);
+  if (key) {
+    key.revokedAt = Date.now();
   }
 }

@@ -73,7 +73,14 @@ async function readCachedJson(key: string, raw = false): Promise<CacheReadResult
 
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return { status: 'miss' };
+  if (!url || !token) {
+    if (process.env.VITE_DEV_SERVER === 'true' || process.env.NODE_ENV === 'development') {
+      const { getLocalMockDataForKey } = await import('./local-mock-data');
+      const mockValue = getLocalMockDataForKey(key);
+      if (mockValue !== null) return { status: 'hit', value: mockValue };
+    }
+    return { status: 'miss' };
+  }
   try {
     const finalKey = raw ? key : prefixKey(key);
     const resp = await fetch(`${url}/get/${encodeURIComponent(finalKey)}`, {
@@ -116,7 +123,7 @@ function logCacheReadError(key: string, err: unknown): void {
 /**
  * Like getCachedJson but throws on Redis/network failures instead of returning null.
  * Always uses the raw (unprefixed) key — callers that write via seed scripts (which bypass
- * the prefix system) must use this to read the same key they wrote.
+ * the prefix system) must use this to read the same key input.
  */
 export async function getRawJson(key: string): Promise<unknown | null> {
   if (process.env.LOCAL_API_MODE === 'tauri-sidecar') {
@@ -125,7 +132,13 @@ export async function getRawJson(key: string): Promise<unknown | null> {
   }
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) throw new Error('Redis credentials not configured');
+  if (!url || !token) {
+    if (process.env.VITE_DEV_SERVER === 'true' || process.env.NODE_ENV === 'development') {
+      const { getLocalMockDataForKey } = await import('./local-mock-data');
+      return getLocalMockDataForKey(key);
+    }
+    throw new Error('Redis credentials not configured');
+  }
   const resp = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
@@ -156,7 +169,14 @@ export async function getCachedRawString(key: string): Promise<string | null> {
   }
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
+  if (!url || !token) {
+    if (process.env.VITE_DEV_SERVER === 'true' || process.env.NODE_ENV === 'development') {
+      const { getLocalMockDataForKey } = await import('./local-mock-data');
+      const mockValue = getLocalMockDataForKey(key);
+      return mockValue ? JSON.stringify(mockValue) : null;
+    }
+    return null;
+  }
   try {
     const resp = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -293,7 +313,17 @@ export async function getCachedJsonBatch(keys: string[]): Promise<Map<string, un
 
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return result;
+  if (!url || !token) {
+    if (process.env.VITE_DEV_SERVER === 'true' || process.env.NODE_ENV === 'development') {
+      const { getLocalMockDataForKey } = await import('./local-mock-data');
+      for (const k of keys) {
+        const mockValue = getLocalMockDataForKey(k);
+        if (mockValue !== null) result.set(k, mockValue);
+      }
+      return result;
+    }
+    return result;
+  }
 
   try {
     const pipeline = keys.map((k) => ['GET', prefixKey(k)]);

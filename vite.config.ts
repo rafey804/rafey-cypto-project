@@ -389,6 +389,7 @@ function polymarketPlugin(): Plugin {
  * paths fall through to existing proxy rules.
  */
 function sebufApiPlugin(): Plugin {
+  process.env.VITE_DEV_SERVER = 'true';
   // Cache router across requests (H-13 fix). Invalidated by Vite's module graph on HMR.
   let cachedRouter: Awaited<ReturnType<typeof buildRouter>> | null = null;
   let cachedCorsMod: any = null;
@@ -536,36 +537,22 @@ function sebufApiPlugin(): Plugin {
       };
 
       server.middlewares.use(async (req, res, next) => {
-        // Intercept sebuf routes in two forms:
-        //  - standard /api/{domain}/v{N}/* (domain-first, e.g. /api/market/v1/...)
-        //  - partner-URL-preservation /api/v{N}/{domain}/* (version-first, e.g.
-        //    /api/v2/shipping/...). Only the second form applies when the
-        //    external contract already uses a reversed layout.
-        if (!req.url || !/^\/api\/(?:[a-z][a-z0-9-]*\/v\d+|v\d+\/[a-z][a-z0-9-]*)\//.test(req.url)) {
+        if (!req.url?.startsWith('/api/')) {
           return next();
         }
 
-        // Rewrite documented v1 URL → new sebuf path if this is an alias.
-        const [pathOnly, queryOnly] = req.url.split('?', 2);
-        const aliasTarget = pathOnly ? V1_ALIASES[pathOnly] : undefined;
-        if (aliasTarget) {
-          req.url = queryOnly ? `${aliasTarget}?${queryOnly}` : aliasTarget;
-        }
-
         try {
-          // Build router once, reuse across requests (H-13 fix)
-          if (!cachedRouter) {
-            cachedRouter = await buildRouter();
-          }
-          const router = cachedRouter;
+          const router = cachedRouter ?? (cachedRouter = await buildRouter());
           const corsMod = cachedCorsMod;
 
-          // Convert Connect IncomingMessage to Web Standard Request
-          const port = server.config.server.port || 3000;
-          const url = new URL(req.url, `http://localhost:${port}`);
+          // Resolve aliased v1 paths before routing
+          const rawUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+          if (V1_ALIASES[rawUrl.pathname]) {
+            rawUrl.pathname = V1_ALIASES[rawUrl.pathname]!;
+          }
+          const url = rawUrl;
 
-          // Read body for POST requests
-          let body: string | undefined;
+          let body: string | undefined = undefined;
           if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
             const chunks: Buffer[] = [];
             for await (const chunk of req) {

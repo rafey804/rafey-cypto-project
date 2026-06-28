@@ -428,6 +428,11 @@ export class DataLoaderManager implements AppModule {
     });
   }
 
+  private marketsIntervalId: ReturnType<typeof setInterval> | null = null;
+  private hydratedMarketsUsed = false;
+  private hydratedSectorsUsed = false;
+  private hydratedCommoditiesUsed = false;
+
   init(): void {
     this.boundMarketWatchlistHandler = () => {
       void this.loadMarkets().then(async () => {
@@ -446,6 +451,12 @@ export class DataLoaderManager implements AppModule {
     this.marketImplicationsFrameworkUnsubscribe = subscribeFrameworkChange('market-implications', () => {
       void this.loadMarketImplications();
     });
+
+    if (!this.marketsIntervalId) {
+      this.marketsIntervalId = setInterval(() => {
+        void this.loadMarkets();
+      }, 1000);
+    }
   }
 
   destroy(): void {
@@ -461,6 +472,10 @@ export class DataLoaderManager implements AppModule {
     this.dailyBriefFrameworkUnsubscribe = null;
     this.marketImplicationsFrameworkUnsubscribe?.();
     this.marketImplicationsFrameworkUnsubscribe = null;
+    if (this.marketsIntervalId) {
+      clearInterval(this.marketsIntervalId);
+      this.marketsIntervalId = null;
+    }
   }
 
   private getAuthoritativeCachedRiskScores(forceLocal: boolean): CachedRiskScores | null {
@@ -1660,7 +1675,8 @@ export class DataLoaderManager implements AppModule {
       let stocksResult: Awaited<ReturnType<typeof fetchMultipleStocks>>;
       const marketsPanel = this.ctx.panels['markets'] as MarketPanel | undefined;
 
-      if (customEntries.length === 0 && hydratedMarkets?.quotes?.length) {
+      if (!this.hydratedMarketsUsed && customEntries.length === 0 && hydratedMarkets?.quotes?.length) {
+        this.hydratedMarketsUsed = true;
         const symbolMetaMap = new Map(effectiveSymbols.map((s) => [s.symbol, s]));
         const data = hydratedMarkets.quotes.map((q) => ({
           symbol: q.symbol,
@@ -1715,7 +1731,8 @@ export class DataLoaderManager implements AppModule {
       const hydratedHasValuationsField = hydratedSectors
         ? Object.prototype.hasOwnProperty.call(hydratedSectors, 'valuations')
         : false;
-      if (hydratedSectors?.sectors?.length && hydratedHasValuationsField) {
+      if (!this.hydratedSectorsUsed && hydratedSectors?.sectors?.length && hydratedHasValuationsField) {
+        this.hydratedSectorsUsed = true;
         warmSectorCache(hydratedSectors);
         const items = hydratedSectors.sectors.map(toHeatmapItem);
         const sectorBars = items.map(toSectorBar).filter((s): s is NonNullable<typeof s> => s !== null);
@@ -1724,7 +1741,7 @@ export class DataLoaderManager implements AppModule {
       } else {
         // If hydrated had sectors but no valuations field, render performance
         // tiles immediately so users see heatmap data while the live fetch runs.
-        if (hydratedSectors?.sectors?.length) {
+        if (!this.hydratedSectorsUsed && hydratedSectors?.sectors?.length) {
           const items = hydratedSectors.sectors.map(toHeatmapItem);
           const sectorBars = items.map(toSectorBar).filter((s): s is NonNullable<typeof s> => s !== null);
           heatmapPanel?.renderHeatmap(items, sectorBars.length ? sectorBars : undefined);
@@ -1759,7 +1776,8 @@ export class DataLoaderManager implements AppModule {
         let metalsLoaded = skipFetch;
         let energyLoaded = skipFetch;
 
-        if (!(metalsLoaded && energyLoaded) && hydratedCommodities?.quotes?.length) {
+        if (!this.hydratedCommoditiesUsed && !(metalsLoaded && energyLoaded) && hydratedCommodities?.quotes?.length) {
+          this.hydratedCommoditiesUsed = true;
           // Warm the circuit-breaker cache so SWR serves stale data if the
           // first scheduled live call fails (bootstrap hydration bypasses the RPC).
           warmCommodityCache(hydratedCommodities);

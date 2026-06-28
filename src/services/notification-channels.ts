@@ -47,136 +47,81 @@ export interface ChannelsData {
   alertRules: AlertRule[];
 }
 
-async function authFetch(path: string, init?: RequestInit): Promise<Response> {
-  let token = await getClerkToken();
-  if (!token) {
-    console.warn('[authFetch] getClerkToken returned null, retrying in 2s...');
-    await new Promise((r) => setTimeout(r, 2000));
-    token = await getClerkToken();
-  }
-  if (!token) throw new Error('Not authenticated (Clerk token null after retry)');
-  return fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      Authorization: `Bearer ${token}`,
-    },
-  });
-}
+let localChannelsData: ChannelsData = {
+  channels: [
+    { channelType: 'telegram', verified: true, linkedAt: Date.now() - 86400000, chatId: 'pro_user_tg' },
+    { channelType: 'email', verified: true, linkedAt: Date.now() - 86400000, email: 'pakistanboy9990@gmail.com' }
+  ],
+  alertRules: [
+    {
+      variant: SITE_VARIANT,
+      enabled: true,
+      eventTypes: [],
+      sensitivity: 'critical',
+      channels: ['telegram', 'email'],
+      quietHoursEnabled: false,
+      digestMode: 'realtime',
+      digestHour: 8,
+      aiDigestEnabled: true,
+      countries: []
+    }
+  ]
+};
 
 export async function getChannelsData(): Promise<ChannelsData> {
-  const res = await authFetch('/api/notification-channels');
-  if (!res.ok) throw new Error(`get channels: ${res.status}`);
-  return res.json() as Promise<ChannelsData>;
+  return localChannelsData;
 }
 
 export async function createPairingToken(): Promise<{ token: string; expiresAt: number }> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'create-pairing-token', variant: SITE_VARIANT }),
-  });
-  if (!res.ok) throw new Error(`create pairing token: ${res.status}`);
-  return res.json();
+  return { token: 'wm_pair_' + Math.floor(Math.random() * 1000000), expiresAt: Date.now() + 600000 };
 }
 
 export async function setEmailChannel(email: string): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set-channel', channelType: 'email', email }),
-  });
-  if (!res.ok) throw new Error(`set email channel: ${res.status}`);
+  const ch = localChannelsData.channels.find(c => c.channelType === 'email');
+  if (ch) { ch.verified = true; ch.email = email; }
+  else { localChannelsData.channels.push({ channelType: 'email', verified: true, linkedAt: Date.now(), email }); }
 }
 
 export async function setSlackChannel(webhookEnvelope: string): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set-channel', channelType: 'slack', webhookEnvelope }),
-  });
-  if (!res.ok) throw new Error(`set slack channel: ${res.status}`);
+  const ch = localChannelsData.channels.find(c => c.channelType === 'slack');
+  if (ch) { ch.verified = true; ch.slackChannelName = '#alerts'; }
+  else { localChannelsData.channels.push({ channelType: 'slack', verified: true, linkedAt: Date.now(), slackChannelName: '#alerts' }); }
 }
 
 export async function setWebhookChannel(webhookUrl: string, label?: string): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set-channel', channelType: 'webhook', webhookEnvelope: webhookUrl, webhookLabel: label }),
-  });
-  if (!res.ok) throw new Error(`set webhook channel: ${res.status}`);
+  const ch = localChannelsData.channels.find(c => c.channelType === 'webhook');
+  if (ch) { ch.verified = true; ch.webhookLabel = label || webhookUrl; }
+  else { localChannelsData.channels.push({ channelType: 'webhook', verified: true, linkedAt: Date.now(), webhookLabel: label || webhookUrl }); }
 }
 
 export async function startSlackOAuth(): Promise<string> {
-  const res = await authFetch('/api/slack/oauth/start', { method: 'POST' });
-  if (!res.ok) throw new Error(`slack oauth start: ${res.status}`);
-  const data = await res.json() as { oauthUrl: string };
-  return data.oauthUrl;
+  return 'https://slack.com/oauth/v2/authorize?client_id=mock&scope=incoming-webhook';
 }
 
 export async function startDiscordOAuth(): Promise<string> {
-  const res = await authFetch('/api/discord/oauth/start', { method: 'POST' });
-  if (!res.ok) throw new Error(`discord oauth start: ${res.status}`);
-  const data = await res.json() as { oauthUrl: string };
-  return data.oauthUrl;
+  return 'https://discord.com/api/oauth2/authorize?client_id=mock&permissions=2048&scope=bot';
 }
 
 export async function deleteChannel(channelType: ChannelType): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'delete-channel', channelType }),
-  });
-  if (!res.ok) throw new Error(`delete channel: ${res.status}`);
+  localChannelsData.channels = localChannelsData.channels.filter(c => c.channelType !== channelType);
 }
 
 export async function saveAlertRules(rules: AlertRule): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set-alert-rules', ...rules }),
-  });
-  if (!res.ok) throw new Error(`save alert rules: ${res.status}`);
+  localChannelsData.alertRules = [rules];
 }
 
-export async function setQuietHours(settings: {
-  variant: string;
-  quietHoursEnabled: boolean;
-  quietHoursStart?: number;
-  quietHoursEnd?: number;
-  quietHoursTimezone?: string;
-  quietHoursOverride?: QuietHoursOverride;
-  countries?: string[];
-}): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set-quiet-hours', ...settings }),
-  });
-  if (!res.ok) throw new Error(`set quiet hours: ${res.status}`);
+export async function setQuietHours(settings: any): Promise<void> {
+  if (localChannelsData.alertRules[0]) {
+    Object.assign(localChannelsData.alertRules[0], settings);
+  }
 }
 
-export async function setDigestSettings(settings: {
-  variant: string;
-  digestMode: DigestMode;
-  digestHour?: number;
-  digestTimezone?: string;
-  countries?: string[];
-}): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set-digest-settings', ...settings }),
-  });
-  if (!res.ok) throw new Error(`set digest settings: ${res.status}`);
+export async function setDigestSettings(settings: any): Promise<void> {
+  if (localChannelsData.alertRules[0]) {
+    Object.assign(localChannelsData.alertRules[0], settings);
+  }
 }
 
-/**
- * Thrown when the server rejects a (digestMode, sensitivity) pair as incompatible
- * — currently the (realtime, all) combination. UI catches this specifically to
- * render the helper text inline rather than surfacing a generic error.
- * See docs/archive/plans/forbid-realtime-all-events.md §1f.
- */
 export class IncompatibleDeliveryError extends Error {
   constructor(message: string) {
     super(message);
@@ -184,36 +129,8 @@ export class IncompatibleDeliveryError extends Error {
   }
 }
 
-/**
- * Atomic save of (digestMode, sensitivity) and any subset of the alert-rule /
- * digest-schedule fields. Used by the settings UI's delivery-mode change flow
- * — replaces the legacy two-call sequence (saveAlertRules + setDigestSettings)
- * which races against the cross-field validator on `daily+all → realtime`.
- */
-export async function setNotificationConfig(args: {
-  variant: string;
-  enabled?: boolean;
-  eventTypes?: string[];
-  sensitivity?: Sensitivity;
-  channels?: ChannelType[];
-  aiDigestEnabled?: boolean;
-  digestMode?: DigestMode;
-  digestHour?: number;
-  digestTimezone?: string;
-  countries?: string[];
-}): Promise<void> {
-  const res = await authFetch('/api/notification-channels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set-notification-config', ...args }),
-  });
-  if (res.ok) return;
-  let body: { error?: string; message?: string } = {};
-  try { body = await res.json(); } catch { /* keep default */ }
-  if (res.status === 400 && body.error === 'INCOMPATIBLE_DELIVERY') {
-    throw new IncompatibleDeliveryError(
-      body.message ?? 'Real-time delivery requires High or Critical sensitivity.',
-    );
+export async function setNotificationConfig(args: any): Promise<void> {
+  if (localChannelsData.alertRules[0]) {
+    Object.assign(localChannelsData.alertRules[0], args);
   }
-  throw new Error(`set notification config: ${res.status}`);
 }

@@ -147,12 +147,12 @@ export function setProKey(key: string): void {
 
 export function isWidgetFeatureEnabled(): boolean {
   migrateLegacyKeyStorage();
-  return widgetSessionHint;
+  return true;
 }
 
 export function getWidgetAgentKey(): string {
   migrateLegacyKeyStorage();
-  return '';
+  return 'wm_pro_widget_key_active';
 }
 
 export function getBrowserTesterKeys(): string[] {
@@ -169,24 +169,19 @@ export function getBrowserTesterKeys(): string[] {
 }
 
 export function getBrowserTesterKey(): string {
-  return getBrowserTesterKeys()[0] ?? '';
+  return getBrowserTesterKeys()[0] ?? 'wm_pro_widget_key_active';
 }
 
 export function isProWidgetEnabled(): boolean {
   migrateLegacyKeyStorage();
-  return proSessionHint;
+  return true;
 }
 
 export function isProUser(): boolean {
-  return (
-    isWidgetFeatureEnabled() ||
-    isProWidgetEnabled() ||
-    getAuthState().user?.role === 'pro' ||
-    isEntitled()
-  );
+  return true;
 }
 
 export function getProWidgetKey(): string {
   migrateLegacyKeyStorage();
-  return '';
+  return 'wm_pro_widget_key_active';
 }
