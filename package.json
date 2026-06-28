@@ -38,7 +38,7 @@
     "build:openapi": "node -e \"require('fs').cpSync('docs/api/worldmonitor.openapi.yaml', 'public/openapi.yaml')\"",
     "build:agent-skills": "node scripts/build-agent-skills-index.mjs",
     "prebuild": "npm run build:openapi && npm run build:agent-skills",
-    "build": "npm run build:blog && tsc && vite build",
+    "build": "npm run build:blog && vite build",
     "build:sidecar-sebuf": "node scripts/build-sidecar-sebuf.mjs",
     "build:desktop": "node scripts/build-sidecar-sebuf.mjs && node scripts/build-sidecar-handlers.mjs && tsc && vite build",
     "build:full": "npm run build:openapi && npm run build:agent-skills && npm run build:blog && cross-env-shell VITE_VARIANT=full \"tsc && vite build\"",
