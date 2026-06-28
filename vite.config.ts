@@ -5,7 +5,8 @@ import { resolve, dirname, extname } from 'path';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { brotliCompress } from 'zlib';
 import { promisify } from 'util';
-import pkg from './package.json';
+import { readFileSync } from 'fs';
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 import { VARIANT_META, type VariantMeta } from './src/config/variant-meta';
 
 // Env-dependent constants moved inside defineConfig function
