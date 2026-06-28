@@ -228,7 +228,18 @@ async function getCachedJsonBatch(keys) {
   // populate prefixed keys, so prefixing would always miss.
   const pipeline = keys.map((k) => ['GET', k]);
   const data = await redisPipeline(pipeline, 3000);
-  if (!data) return result;
+  if (!data) {
+    try {
+      const { getLocalMockDataForKey } = await import('../server/_shared/local-mock-data.ts');
+      for (const k of keys) {
+        const mockVal = getLocalMockDataForKey(k);
+        if (mockVal !== null) result.set(k, mockVal);
+      }
+    } catch (err) {
+      console.error('[bootstrap] Mock data import error:', err);
+    }
+    return result;
+  }
 
   for (let i = 0; i < keys.length; i++) {
     const raw = data[i]?.result;

@@ -65,7 +65,7 @@ export async function broadcastWhatsAppNews(
       } catch {}
     }
 
-    // Parse XAU/USD Spot Gold
+    // Parse XAU/USDT Spot Gold
     if (xauRes.status === 'fulfilled' && xauRes.value.ok) {
       try {
         const data = await xauRes.value.json() as { RAW?: { XAU?: { USD?: { PRICE?: number, CHANGEPCT24HOUR?: number } } } };
@@ -79,9 +79,9 @@ export async function broadcastWhatsAppNews(
     // Calculate Strong Consensus Global Price
     const validPrices = [binanceBtc, mexcBtc, bybitBtc, kucoinBtc].filter(p => p > 0);
     const consensusBtcPrice = validPrices.length > 0 ? validPrices.reduce((a, b) => a + b, 0) / validPrices.length : 63850.50;
-    if (!goldPrice) goldPrice = 2468.50; // Fallback Spot XAU/USD price
+    if (!goldPrice) goldPrice = 2468.50; // Fallback Spot XAU/USDT price
 
-    // Weekend Check for XAU/USD Gold Market (Saturday & Sunday Off)
+    // Weekend Check for XAU/USDT Gold Market (Saturday & Sunday Off)
     const nowObj = new Date();
     const dayOfWeek = nowObj.getUTCDay(); // 0 = Sunday, 1 = Monday... 6 = Saturday
     const utcHours = nowObj.getUTCHours();
@@ -254,28 +254,51 @@ export async function broadcastWhatsAppNews(
       if (isMajorPriceMove) triggerReason = `Major BTC Price Move of $${priceDiff.toFixed(2)} detected`;
       else if (isNewBreakingTweet) triggerReason = `Breaking Executive Tweet/News detected`;
       else if (isMajorLiquidityEvent) triggerReason = `Major Order Book Liquidity / Spoofing Anomaly detected`;
+    } else {
+      // INITIAL COLD START / FIRST RUN:
+      // Do NOT broadcast a meaningless initial alert unless there is an active breaking tweet or major liquidity anomaly!
+      // This prevents the bot from spamming every time the local dev server restarts.
+      const initialCache: BroadcastCache = {
+        btcPrice: consensusBtcPrice,
+        time: now,
+        lastLiquidityTime: (liquiditySweepDetected || spoofingStatus.includes('WARNING')) ? now : 0,
+        latestNewsTitle: rawNewsTitleForCache || '',
+        lastMessageSnippet: ''
+      };
+      lastBroadcastMemoryCache = initialCache;
+      await setCachedJson(CACHE_KEY, initialCache, 7200, true);
+
+      if (!isMajorInfluencerTweet && !liquiditySweepDetected && !isMajorSpoofingEvent) {
+        return {
+          success: true,
+          status: 'skipped',
+          reason: 'silent_initialization',
+          message: 'Initialized monitoring cache silently. No major breaking events detected. Suppressing initial broadcast.'
+        };
+      }
+      triggerReason = isMajorInfluencerTweet ? 'Breaking Executive Tweet/News detected' : 'Major Order Book Liquidity Anomaly detected';
     }
 
     // 6. Perform AI impact analysis with callLlm - Strict Anti-Spam Prompt
     const prompt = `You are an elite Wall Street Crypto & Gold Quantitative Trading Executive. Analyze the following verified multi-source data:
 1. Multi-Exchange Consensus BTC Spot Price: $${consensusBtcPrice.toFixed(2)} (${btcChange}%) [Sources: Binance, MEXC, Bybit, KuCoin]
-2. Gold Spot Price (XAU/USD Spot Gold): $${goldPrice.toFixed(2)} (${goldChange}%) [Market Status: ${goldStatusText}]
+2. Gold Spot Price (XAU/USDT Spot Gold): $${goldPrice.toFixed(2)} (${goldChange}%) [Market Status: ${goldStatusText}]
 3. Multi-Timeframe Top-Down Structure: 15m (${tfSummary.m15}), 30m (${tfSummary.m30}), 1H (${tfSummary.h1}), 4H (${tfSummary.h4}), 1D (${tfSummary.d1})
 4. Live Breaking Twitter/X & Macro Buzz: "${latestNewsHeadline}" (Is Major Influencer Tweet/News: ${isMajorInfluencerTweet ? 'YES' : 'NO'})
 5. Advanced Order Book Math & Spoofing Detection: Bids ${bidRatio.toFixed(1)}%, Asks ${(100 - bidRatio).toFixed(1)}%. Spoofing Index Status: "${spoofingStatus}". Liquidity Sweep Confirmed: ${liquiditySweepDetected ? 'Yes' : 'No'}.
 6. Trigger Event for this Alert: "${triggerReason}"
 
 CRITICAL INSTRUCTIONS:
-1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'BTC me $250+ ka bada move aya hai / Donald Trump ki tweet aayi hai... XAU/USD Gold ki market weekend par off hai...'). Do NOT use pure English or Arabic/Urdu script (اردو).
+1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'BTC me $250+ ka bada move aya hai / Donald Trump ki tweet aayi hai... XAU/USDT Gold ki market weekend par off hai...'). Do NOT use pure English or Arabic/Urdu script (اردو).
 2. Keep the message ULTRA-SHORT, concise, and highly professional (maximum 4 to 5 short lines/bullet points).
-3. Do NOT mention 'koyi tweet nahi aayi' or 'no news'. If there is no major tweet, simply do not mention tweets. Only highlight the specific trigger event (e.g. major price breakout, breaking tweet, or massive liquidity sweep) that caused this alert!
-4. Focus ONLY on BTC and XAU/USD Gold. NEVER mention PAXG. State the clear Trade Direction for BTC based on the 5 timeframes and confirm whether the order book has REAL liquidity or FAKE whale spoofing orders.
-5. If XAU/USD market is closed (Weekend Off), explicitly state in Roman Urdu that XAU/USD Gold market is closed for the weekend so focus entirely on BTC trading.`;
+3. Do NOT mention 'koyi tweet nahi aayi', 'tweet nhi aayi', 'no tweet', or 'no news'. If there is no major tweet, simply do NOT mention tweets at all. Only highlight the specific trigger event (e.g. major price breakout, breaking tweet, or massive liquidity sweep / best trade setup) that caused this alert!
+4. Focus ONLY on BTC and XAU/USDT (Gold). You MUST refer to Gold as XAU/USDT. NEVER mention PAXG, pxag, or XAU/USD. State the clear Trade Direction (Best Trade Setup) for BTC based on the 5 timeframes and confirm whether the order book has REAL liquidity or FAKE whale spoofing orders.
+5. If XAU/USDT market is closed (Weekend Off), explicitly state in Roman Urdu that XAU/USDT Gold market is closed for the weekend so focus entirely on BTC trading.`;
 
     const aiResult = await callLlm({
       messages: [{ role: 'user', content: prompt }],
     });
-    const aiAnalysis = aiResult?.content || `🚨 Market Alert (${triggerReason}): Consensus BTC $${consensusBtcPrice.toFixed(2)}, XAU/USD Gold $${goldPrice} (${goldStatusText}). Timeframes (15m-1D): ${tfSummary.h4}. Spoofing Status: ${spoofingStatus}.`;
+    const aiAnalysis = aiResult?.content || `🚨 Market Alert (${triggerReason}): Consensus BTC $${consensusBtcPrice.toFixed(2)}, XAU/USDT Gold $${goldPrice} (${goldStatusText}). Timeframes (15m-1D): ${tfSummary.h4}. Spoofing Status: ${spoofingStatus}.`;
 
     // Second layer of anti-repetition: verify AI text
     const currentSnippet = aiAnalysis.slice(0, 40);

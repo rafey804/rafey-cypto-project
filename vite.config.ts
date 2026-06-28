@@ -604,20 +604,20 @@ function sebufApiPlugin(): Plugin {
           // Route matching
           const matchedHandler = router.match(webRequest);
           if (!matchedHandler) {
-            const allowed = router.allowedMethods(new URL(webRequest.url).pathname);
-            if (allowed.length > 0) {
-              res.statusCode = 405;
-              res.setHeader('Content-Type', 'application/json');
-              res.setHeader('Allow', allowed.join(', '));
-            } else {
-              res.statusCode = 404;
-              res.setHeader('Content-Type', 'application/json');
+            if (url.pathname === '/api/bootstrap') {
+              const bootstrapMod = await import('./api/bootstrap.js');
+              const response = await bootstrapMod.default(webRequest);
+              res.statusCode = response.status;
+              response.headers.forEach((value, key) => {
+                res.setHeader(key, value);
+              });
+              for (const [key, value] of Object.entries(corsHeaders)) {
+                res.setHeader(key, value);
+              }
+              res.end(await response.text());
+              return;
             }
-            for (const [key, value] of Object.entries(corsHeaders)) {
-              res.setHeader(key, value);
-            }
-            res.end(JSON.stringify({ error: res.statusCode === 405 ? 'Method not allowed' : 'Not found' }));
-            return;
+            return next();
           }
 
           // Execute handler
