@@ -5,14 +5,14 @@ import { getCachedJson, setCachedJson } from '../../../_shared/redis';
 interface BroadcastCache {
   btcPrice: number;
   time: number;
-  macroTrend: string;
+  lastLiquidityTime: number;
   latestNewsTitle: string;
   lastMessageSnippet: string;
 }
 
 // In-memory cache fallback for instant checks between cold starts
 let lastBroadcastMemoryCache: BroadcastCache | null = null;
-const CACHE_KEY = 'market:last-broadcast:v7';
+const CACHE_KEY = 'market:last-broadcast:v8';
 
 export async function broadcastWhatsAppNews(
   _ctx: ServerContext,
@@ -87,7 +87,7 @@ export async function broadcastWhatsAppNews(
     const utcHours = nowObj.getUTCHours();
     // Commodities market closes Friday 22:00 UTC and reopens Sunday 22:00 UTC
     const isGoldMarketClosed = (dayOfWeek === 6) || (dayOfWeek === 0 && utcHours < 22) || (dayOfWeek === 5 && utcHours >= 22);
-    const goldStatusText = isGoldMarketClosed ? 'Market Closed (Weekend Off - Showing Friday Close Price)' : 'Market Open (Active Spot Trading)';
+    const goldStatusText = isGoldMarketClosed ? 'Market Closed (Weekend Off)' : 'Market Open';
 
     // 2. Multi-Timeframe Klines Fetch (15m, 30m, 1h, 4h, 1d) for Top-Down Market Structure Analysis
     let tfSummary = { m15: '0%', m30: '0%', h1: '0%', h4: '0%', d1: '0%' };
@@ -116,7 +116,7 @@ export async function broadcastWhatsAppNews(
     } catch {}
 
     // 3. Real-Time Twitter/X & Breaking News Engine (Trump, Elon Musk, Fed, SEC, Saylor)
-    let latestNewsHeadline = 'No major breaking tweets or executive news in the last hour.';
+    let latestNewsHeadline = '';
     let rawNewsTitleForCache = '';
     let isMajorInfluencerTweet = false;
 
@@ -144,14 +144,13 @@ export async function broadcastWhatsAppNews(
         }
       }
 
-      // Prioritize breaking tweets/news containing major influencers or macro keywords
       const combinedText = foundTweetText || foundNewsText;
       if (combinedText) {
         rawNewsTitleForCache = combinedText.slice(0, 100);
         latestNewsHeadline = combinedText;
         
         const lowerText = combinedText.toLowerCase();
-        const influencerKeywords = ['trump', 'elon', 'musk', 'powell', 'fed', 'sec', 'gensler', 'saylor', 'rate', 'war', 'emergency', 'liquidate', 'whale', 'blackrock'];
+        const influencerKeywords = ['trump', 'elon', 'musk', 'powell', 'fed', 'sec', 'gensler', 'saylor', 'rate', 'war', 'emergency', 'blackrock', 'fomc', 'liquidate'];
         if (influencerKeywords.some(kw => lowerText.includes(kw))) {
           isMajorInfluencerTweet = true;
         }
@@ -168,7 +167,6 @@ export async function broadcastWhatsAppNews(
       if (depthRes.ok) {
         const depth = await depthRes.json() as { bids: [string, string][], asks: [string, string][] };
         
-        // Calculate Inner Liquidity (within 0.5% of Spot) vs Outer Liquidity (0.5% to 5% away)
         const spot = consensusBtcPrice;
         for (const b of depth.bids || []) {
           const p = parseFloat(b[0]);
@@ -194,22 +192,25 @@ export async function broadcastWhatsAppNews(
     const totalVolume = totalBidVolume + totalAskVolume;
     const bidRatio = totalVolume > 0 ? (totalBidVolume / totalVolume) * 100 : 50;
     
-    // Advanced Spoofing Math Formula: Spoofing Index (SI) = (OuterVol - InnerVol) / TotalVol
     const bidSpoofingIndex = totalBidVolume > 0 ? (outerBidVolume - innerBidVolume) / totalBidVolume : 0;
     const askSpoofingIndex = totalAskVolume > 0 ? (outerAskVolume - innerAskVolume) / totalAskVolume : 0;
     
     let spoofingStatus = 'Valid Real Institutional Liquidity (No Spoofing Detected)';
-    if (bidSpoofingIndex > 0.65 && askSpoofingIndex < 0.40) {
+    let isMajorSpoofingEvent = false;
+
+    if (bidSpoofingIndex > 0.70 && askSpoofingIndex < 0.40) {
       spoofingStatus = '🚨 WARNING: Fake Whale Buy Walls Detected (Bids Spoofing in Outer Order Book - Phantom Liquidity!)';
-    } else if (askSpoofingIndex > 0.65 && bidSpoofingIndex < 0.40) {
+      isMajorSpoofingEvent = true;
+    } else if (askSpoofingIndex > 0.70 && bidSpoofingIndex < 0.40) {
       spoofingStatus = '🚨 WARNING: Fake Whale Sell Walls Detected (Asks Spoofing in Outer Order Book - Phantom Liquidity!)';
+      isMajorSpoofingEvent = true;
     }
 
     let liquiditySweepDetected = false;
     if (bidRatio > 65 && btcChange < 0 && bidSpoofingIndex <= 0.50) liquiditySweepDetected = true; // True sweep requires real inner liquidity
     if (bidRatio < 35 && btcChange > 0 && askSpoofingIndex <= 0.50) liquiditySweepDetected = true;
 
-    // 5. Strict Persistent Anti-Repetition & Instant Breaking Tweet Trigger
+    // 5. Strict Persistent Anti-Repetition & Instant Breaking Event Trigger
     const now = Date.now();
     let cached = lastBroadcastMemoryCache;
     if (!cached) {
@@ -220,48 +221,61 @@ export async function broadcastWhatsAppNews(
       }
     }
 
+    let triggerReason = 'Initial or Scheduled Macro Update';
+
     if (cached) {
       const priceDiff = Math.abs(consensusBtcPrice - cached.btcPrice);
       const timeDiffMinutes = (now - cached.time) / (1000 * 60);
+      const liquidityTimeDiffMinutes = (now - (cached.lastLiquidityTime || 0)) / (1000 * 60);
       
-      // Triggers: Brand new tweet from Trump/Musk/Fed, $150+ price move, macro trend shift, or 45 mins regular update
-      const currentMacro = `${tfSummary.h4}:${tfSummary.d1}`;
-      const isMajorPriceMove = priceDiff >= 150;
-      const isNewBreakingTweet = rawNewsTitleForCache && cached.latestNewsTitle && rawNewsTitleForCache !== cached.latestNewsTitle;
-      const isMacroTrendShift = currentMacro !== cached.macroTrend;
-      const isScheduledTimeElapsed = timeDiffMinutes >= 45;
+      // TRIGGER 1: Strict $250+ absolute price move (No small wiggles)
+      const isMajorPriceMove = priceDiff >= 250;
+      
+      // TRIGGER 2: Brand new tweet/news containing major influencers (Trump, Elon, Fed, SEC, War, Rate)
+      const isNewBreakingTweet = isMajorInfluencerTweet && rawNewsTitleForCache && cached.latestNewsTitle && rawNewsTitleForCache !== cached.latestNewsTitle;
+      
+      // TRIGGER 3: Genuine major liquidity sweep or major spoofing anomaly (max once every 15 minutes)
+      const isMajorLiquidityEvent = (liquiditySweepDetected || isMajorSpoofingEvent) && (liquidityTimeDiffMinutes >= 15);
+      
+      // TRIGGER 4: Scheduled routine check only if 4 hours (240 mins) have passed without any message
+      const isScheduledTimeElapsed = timeDiffMinutes >= 240;
 
-      const isSignificantEvent = isMajorPriceMove || isNewBreakingTweet || isMacroTrendShift || isScheduledTimeElapsed;
+      const isSignificantEvent = isMajorPriceMove || isNewBreakingTweet || isMajorLiquidityEvent || isScheduledTimeElapsed;
 
       if (!isSignificantEvent) {
         return {
           success: true,
           status: 'skipped',
-          reason: 'duplicate_prevention',
-          message: `No new breaking tweets (Trump/Fed/Musk), macro shifts, or major price moves detected (BTC diff: $${priceDiff.toFixed(2)}, last broadcast: ${timeDiffMinutes.toFixed(1)} mins ago). Suppressing duplicate alert.`
+          reason: 'strict_spam_prevention',
+          message: `No major events detected: BTC price move < $250 (diff: $${priceDiff.toFixed(2)}), no new Trump/Fed tweets, and no fresh liquidity sweeps. Suppressing Telegram broadcast to maintain silent monitoring.`
         };
       }
+
+      if (isMajorPriceMove) triggerReason = `Major BTC Price Move of $${priceDiff.toFixed(2)} detected`;
+      else if (isNewBreakingTweet) triggerReason = `Breaking Executive Tweet/News detected`;
+      else if (isMajorLiquidityEvent) triggerReason = `Major Order Book Liquidity / Spoofing Anomaly detected`;
     }
 
-    // 6. Perform AI impact analysis with callLlm - Super-Advanced Quant & Tweet Impact Prompt
+    // 6. Perform AI impact analysis with callLlm - Strict Anti-Spam Prompt
     const prompt = `You are an elite Wall Street Crypto & Gold Quantitative Trading Executive. Analyze the following verified multi-source data:
 1. Multi-Exchange Consensus BTC Spot Price: $${consensusBtcPrice.toFixed(2)} (${btcChange}%) [Sources: Binance, MEXC, Bybit, KuCoin]
 2. Gold Spot Price (XAU/USD Spot Gold): $${goldPrice.toFixed(2)} (${goldChange}%) [Market Status: ${goldStatusText}]
 3. Multi-Timeframe Top-Down Structure: 15m (${tfSummary.m15}), 30m (${tfSummary.m30}), 1H (${tfSummary.h1}), 4H (${tfSummary.h4}), 1D (${tfSummary.d1})
 4. Live Breaking Twitter/X & Macro Buzz: "${latestNewsHeadline}" (Is Major Influencer Tweet/News: ${isMajorInfluencerTweet ? 'YES' : 'NO'})
 5. Advanced Order Book Math & Spoofing Detection: Bids ${bidRatio.toFixed(1)}%, Asks ${(100 - bidRatio).toFixed(1)}%. Spoofing Index Status: "${spoofingStatus}". Liquidity Sweep Confirmed: ${liquiditySweepDetected ? 'Yes' : 'No'}.
+6. Trigger Event for this Alert: "${triggerReason}"
 
 CRITICAL INSTRUCTIONS:
-1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'Donald Trump ki tweet X par aayi hai jiska market par bada impact hai... XAU/USD Gold ki market weekend par off hai...'). Do NOT use pure English or Arabic/Urdu script (اردو).
+1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'BTC me $250+ ka bada move aya hai / Donald Trump ki tweet aayi hai... XAU/USD Gold ki market weekend par off hai...'). Do NOT use pure English or Arabic/Urdu script (اردو).
 2. Keep the message ULTRA-SHORT, concise, and highly professional (maximum 4 to 5 short lines/bullet points).
-3. If there is a live breaking tweet or news headline (especially Trump, Elon Musk, Fed, SEC, Saylor), your VERY FIRST SENTENCE MUST summarize the tweet/news and explain its immediate market impact in Roman Urdu.
+3. Do NOT mention 'koyi tweet nahi aayi' or 'no news'. If there is no major tweet, simply do not mention tweets. Only highlight the specific trigger event (e.g. major price breakout, breaking tweet, or massive liquidity sweep) that caused this alert!
 4. Focus ONLY on BTC and XAU/USD Gold. NEVER mention PAXG. State the clear Trade Direction for BTC based on the 5 timeframes and confirm whether the order book has REAL liquidity or FAKE whale spoofing orders.
 5. If XAU/USD market is closed (Weekend Off), explicitly state in Roman Urdu that XAU/USD Gold market is closed for the weekend so focus entirely on BTC trading.`;
 
     const aiResult = await callLlm({
       messages: [{ role: 'user', content: prompt }],
     });
-    const aiAnalysis = aiResult?.content || `🚨 Market Update: Consensus BTC $${consensusBtcPrice.toFixed(2)}, XAU/USD Gold $${goldPrice} (${goldStatusText}). Timeframes (15m-1D): ${tfSummary.h4}. Spoofing Status: ${spoofingStatus}. Buzz: ${latestNewsHeadline.slice(0, 60)}...`;
+    const aiAnalysis = aiResult?.content || `🚨 Market Alert (${triggerReason}): Consensus BTC $${consensusBtcPrice.toFixed(2)}, XAU/USD Gold $${goldPrice} (${goldStatusText}). Timeframes (15m-1D): ${tfSummary.h4}. Spoofing Status: ${spoofingStatus}.`;
 
     // Second layer of anti-repetition: verify AI text
     const currentSnippet = aiAnalysis.slice(0, 40);
@@ -278,7 +292,7 @@ CRITICAL INSTRUCTIONS:
     const newCache: BroadcastCache = {
       btcPrice: consensusBtcPrice,
       time: now,
-      macroTrend: `${tfSummary.h4}:${tfSummary.d1}`,
+      lastLiquidityTime: (liquiditySweepDetected || spoofingStatus.includes('WARNING')) ? now : (cached?.lastLiquidityTime || 0),
       latestNewsTitle: rawNewsTitleForCache || (cached?.latestNewsTitle ?? ''),
       lastMessageSnippet: currentSnippet
     };
