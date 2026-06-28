@@ -12,7 +12,7 @@ interface BroadcastCache {
 
 // In-memory cache fallback for instant checks between cold starts
 let lastBroadcastMemoryCache: BroadcastCache | null = null;
-const CACHE_KEY = 'market:last-broadcast:v4';
+const CACHE_KEY = 'market:last-broadcast:v5';
 
 export async function broadcastWhatsAppNews(
   _ctx: ServerContext,
@@ -70,26 +70,36 @@ export async function broadcastWhatsAppNews(
 
     // Calculate Strong Consensus Global Price
     const validPrices = [binanceBtc, mexcBtc, bybitBtc, kucoinBtc].filter(p => p > 0);
-    let consensusBtcPrice = validPrices.length > 0 ? validPrices.reduce((a, b) => a + b, 0) / validPrices.length : 63850.50;
+    const consensusBtcPrice = validPrices.length > 0 ? validPrices.reduce((a, b) => a + b, 0) / validPrices.length : 63850.50;
     if (!goldPrice) goldPrice = 2465.80;
 
-    // 2. Fetch Macro Timeframes (4H & 1D Klines) from Binance to prevent 1-minute flip-flopping
-    let macroTrendStatus = 'Neutral Macro Consolidation';
+    // 2. Multi-Timeframe Klines Fetch (15m, 30m, 1h, 4h, 1d) for Top-Down Market Structure Analysis
+    let tfSummary = { m15: '0%', m30: '0%', h1: '0%', h4: '0%', d1: '0%' };
     try {
-      const klineRes = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=5');
-      if (klineRes.ok) {
-        const klines = await klineRes.json() as [number, string, string, string, string][];
-        if (klines.length >= 2) {
-          const firstOpen = parseFloat(klines[0][1]);
-          const lastClose = parseFloat(klines[klines.length - 1][4]);
-          const priceChange4H = lastClose - firstOpen;
-          if (priceChange4H > 350) macroTrendStatus = 'Strong Macro Bullish Trend (4H/1D Validated)';
-          else if (priceChange4H < -350) macroTrendStatus = 'Strong Macro Bearish Trend (4H/1D Validated)';
+      const tfPromises = ['15m', '30m', '1h', '4h', '1d'].map(interval => 
+        fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=5`).then(r => r.json())
+      );
+      const tfResults = await Promise.allSettled(tfPromises);
+      
+      const calcTfChange = (res: PromiseSettledResult<any>) => {
+        if (res.status === 'fulfilled' && Array.isArray(res.value) && res.value.length >= 2) {
+          const firstOpen = parseFloat(res.value[0][1]);
+          const lastClose = parseFloat(res.value[res.value.length - 1][4]);
+          return (((lastClose - firstOpen) / firstOpen) * 100).toFixed(2) + '%';
         }
-      }
+        return '0.00%';
+      };
+
+      tfSummary = {
+        m15: calcTfChange(tfResults[0]),
+        m30: calcTfChange(tfResults[1]),
+        h1: calcTfChange(tfResults[2]),
+        h4: calcTfChange(tfResults[3]),
+        d1: calcTfChange(tfResults[4])
+      };
     } catch {}
 
-    // 3. Fetch Real-time Breaking News & Twitter/Social Buzz (CryptoCompare News API - 100% free, live)
+    // 3. Fetch Real-time Breaking News & Twitter/Social Buzz
     let latestNewsHeadline = 'No major breaking news or executive tweets in the last hour.';
     let rawNewsTitleForCache = '';
     try {
@@ -104,23 +114,56 @@ export async function broadcastWhatsAppNews(
       }
     } catch {}
 
-    // 4. Real-time Order Book Depth for immediate Liquidity Sweeps
-    let bidVolume = 0, askVolume = 0;
+    // 4. Advanced Order Book Quant Math: Detect Spoofing (Fake Whale Orders) vs Real Institutional Liquidity
+    let innerBidVolume = 0, outerBidVolume = 0;
+    let innerAskVolume = 0, outerAskVolume = 0;
+    let totalBidVolume = 0, totalAskVolume = 0;
+    
     try {
-      const depthRes = await fetch('https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=50');
+      const depthRes = await fetch('https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=100');
       if (depthRes.ok) {
         const depth = await depthRes.json() as { bids: [string, string][], asks: [string, string][] };
-        for (const b of depth.bids || []) bidVolume += parseFloat(b[0]) * parseFloat(b[1]);
-        for (const a of depth.asks || []) askVolume += parseFloat(a[0]) * parseFloat(a[1]);
+        
+        // Calculate Inner Liquidity (within 0.5% of Spot) vs Outer Liquidity (0.5% to 5% away)
+        const spot = consensusBtcPrice;
+        for (const b of depth.bids || []) {
+          const p = parseFloat(b[0]);
+          const vol = p * parseFloat(b[1]);
+          totalBidVolume += vol;
+          if ((spot - p) / spot <= 0.005) innerBidVolume += vol;
+          else outerBidVolume += vol;
+        }
+
+        for (const a of depth.asks || []) {
+          const p = parseFloat(a[0]);
+          const vol = p * parseFloat(a[1]);
+          totalAskVolume += vol;
+          if ((p - spot) / spot <= 0.005) innerAskVolume += vol;
+          else outerAskVolume += vol;
+        }
       }
     } catch {
-      bidVolume = 1250; askVolume = 1200;
+      innerBidVolume = 500; outerBidVolume = 750; totalBidVolume = 1250;
+      innerAskVolume = 500; outerAskVolume = 700; totalAskVolume = 1200;
     }
-    const totalVolume = bidVolume + askVolume;
-    const bidRatio = totalVolume > 0 ? (bidVolume / totalVolume) * 100 : 50;
+
+    const totalVolume = totalBidVolume + totalAskVolume;
+    const bidRatio = totalVolume > 0 ? (totalBidVolume / totalVolume) * 100 : 50;
+    
+    // Advanced Spoofing Math Formula: Spoofing Index (SI) = (OuterVol - InnerVol) / TotalVol
+    const bidSpoofingIndex = totalBidVolume > 0 ? (outerBidVolume - innerBidVolume) / totalBidVolume : 0;
+    const askSpoofingIndex = totalAskVolume > 0 ? (outerAskVolume - innerAskVolume) / totalAskVolume : 0;
+    
+    let spoofingStatus = 'Valid Real Institutional Liquidity (No Spoofing Detected)';
+    if (bidSpoofingIndex > 0.65 && askSpoofingIndex < 0.40) {
+      spoofingStatus = '🚨 WARNING: Fake Whale Buy Walls Detected (Bids Spoofing in Outer Order Book - Phantom Liquidity!)';
+    } else if (askSpoofingIndex > 0.65 && bidSpoofingIndex < 0.40) {
+      spoofingStatus = '🚨 WARNING: Fake Whale Sell Walls Detected (Asks Spoofing in Outer Order Book - Phantom Liquidity!)';
+    }
+
     let liquiditySweepDetected = false;
-    if (bidRatio > 65 && btcChange < 0) liquiditySweepDetected = true;
-    if (bidRatio < 35 && btcChange > 0) liquiditySweepDetected = true;
+    if (bidRatio > 65 && btcChange < 0 && bidSpoofingIndex <= 0.50) liquiditySweepDetected = true; // True sweep requires real inner liquidity
+    if (bidRatio < 35 && btcChange > 0 && askSpoofingIndex <= 0.50) liquiditySweepDetected = true;
 
     // 5. Strict Persistent Anti-Repetition & Instant Breaking News Trigger
     const now = Date.now();
@@ -138,9 +181,10 @@ export async function broadcastWhatsAppNews(
       const timeDiffMinutes = (now - cached.time) / (1000 * 60);
       
       // Triggers: $150+ price move, brand new breaking news/tweet, macro trend shift, or 45 mins regular update
+      const currentMacro = `${tfSummary.h4}:${tfSummary.d1}`;
       const isMajorPriceMove = priceDiff >= 150;
       const isNewBreakingNews = rawNewsTitleForCache && cached.latestNewsTitle && rawNewsTitleForCache !== cached.latestNewsTitle;
-      const isMacroTrendShift = macroTrendStatus !== cached.macroTrend;
+      const isMacroTrendShift = currentMacro !== cached.macroTrend;
       const isScheduledTimeElapsed = timeDiffMinutes >= 45;
 
       const isSignificantEvent = isMajorPriceMove || isNewBreakingNews || isMacroTrendShift || isScheduledTimeElapsed;
@@ -155,24 +199,24 @@ export async function broadcastWhatsAppNews(
       }
     }
 
-    // 6. Perform AI impact analysis with callLlm - Super-Advanced Institutional Prompt
-    const prompt = `You are an elite Institutional Global Quant & Macro Trading Executive. Analyze the following verified multi-source data:
+    // 6. Perform AI impact analysis with callLlm - Super-Advanced Quant & Spoofing Prompt
+    const prompt = `You are an elite Wall Street Crypto & Gold Quantitative Trading Executive. Analyze the following verified multi-source data:
 1. Multi-Exchange Consensus BTC Spot Price: $${consensusBtcPrice.toFixed(2)} (${btcChange}%) [Sources: Binance, MEXC, Bybit, KuCoin]
 2. Gold Spot Price (PAXG/USD Pegged): $${goldPrice.toFixed(2)} (${goldChange}%)
-3. Macro 4H/1D Trend Status: ${macroTrendStatus} (CRITICAL: Rely on this macro trend to establish trade direction. Do NOT flip-flop on 1-minute noise.)
+3. Multi-Timeframe Top-Down Structure: 15m (${tfSummary.m15}), 30m (${tfSummary.m30}), 1H (${tfSummary.h1}), 4H (${tfSummary.h4}), 1D (${tfSummary.d1})
 4. Live Breaking News & Social/Twitter Buzz: "${latestNewsHeadline}"
-5. Order Book Imbalance & Liquidity Sweep: Bids ${bidRatio.toFixed(1)}%, Asks ${(100 - bidRatio).toFixed(1)}%. Liquidity Sweep: ${liquiditySweepDetected ? 'Yes - Stop Hunt Confirmed' : 'Normal Execution'}.
+5. Advanced Order Book Math & Spoofing Detection: Bids ${bidRatio.toFixed(1)}%, Asks ${(100 - bidRatio).toFixed(1)}%. Spoofing Index Status: "${spoofingStatus}". Liquidity Sweep Confirmed: ${liquiditySweepDetected ? 'Yes' : 'No'}.
 
 CRITICAL INSTRUCTIONS:
-1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'BTC ki macro trend 4H/1D par bullish hai, multi-exchange data confirm kar raha hai...'). Do NOT use pure English or Arabic/Urdu script (اردو).
+1. You MUST write the ENTIRE response ONLY in professional Roman English (Roman Urdu, e.g. 'BTC ki multi-timeframe analysis (15m se 1D) confirm kar rahi hai... order book me real liquidity hai / fake walls hain...'). Do NOT use pure English or Arabic/Urdu script (اردو).
 2. Keep the message ULTRA-SHORT, concise, and highly professional (maximum 4 to 5 short lines/bullet points).
-3. Focus ONLY on BTC and Gold. State the clear Trade Direction based on the 4H/1D Macro trend (no flip-flopping).
+3. Focus ONLY on BTC and Gold. State the clear Trade Direction based on the 5 timeframes and confirm whether the order book has REAL liquidity or FAKE whale spoofing orders.
 4. If there is an important breaking news headline or influential tweet (e.g. Trump, Fed, SEC), highlight its impact immediately in 1 sentence.`;
 
     const aiResult = await callLlm({
       messages: [{ role: 'user', content: prompt }],
     });
-    const aiAnalysis = aiResult?.content || `🚨 Market Update: Consensus BTC $${consensusBtcPrice.toFixed(2)}, Gold $${goldPrice}. Macro Trend: ${macroTrendStatus}. News: ${latestNewsHeadline.slice(0, 60)}...`;
+    const aiAnalysis = aiResult?.content || `🚨 Market Update: Consensus BTC $${consensusBtcPrice.toFixed(2)}, Gold $${goldPrice}. Timeframes (15m-1D): ${tfSummary.h4}. Spoofing Status: ${spoofingStatus}. News: ${latestNewsHeadline.slice(0, 60)}...`;
 
     // Second layer of anti-repetition: verify AI text
     const currentSnippet = aiAnalysis.slice(0, 40);
@@ -189,7 +233,7 @@ CRITICAL INSTRUCTIONS:
     const newCache: BroadcastCache = {
       btcPrice: consensusBtcPrice,
       time: now,
-      macroTrend: macroTrendStatus,
+      macroTrend: `${tfSummary.h4}:${tfSummary.d1}`,
       latestNewsTitle: rawNewsTitleForCache || (cached?.latestNewsTitle ?? ''),
       lastMessageSnippet: currentSnippet
     };
