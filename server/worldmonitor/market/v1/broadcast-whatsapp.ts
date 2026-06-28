@@ -1,9 +1,18 @@
 import type { ServerContext } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import { callLlm } from '../../../_shared/llm';
+import { getCachedJson, setCachedJson } from '../../../_shared/redis';
 
-// In-memory cache to prevent spamming Telegram unless there is a major liquidity sweep, order flow shift, or price movement
-let lastBroadcastBtcPrice = 0;
-let lastBroadcastTime = 0;
+interface BroadcastCache {
+  btcPrice: number;
+  time: number;
+  orderFlowStatus: string;
+  liquiditySweepDetected: boolean;
+  lastMessageSnippet: string;
+}
+
+// In-memory cache fallback for instant checks between cold starts
+let lastBroadcastMemoryCache: BroadcastCache | null = null;
+const CACHE_KEY = 'market:last-broadcast:v3';
 
 export async function broadcastWhatsAppNews(
   _ctx: ServerContext,
@@ -62,21 +71,38 @@ export async function broadcastWhatsAppNews(
       if (btcChange > 0) liquiditySweepDetected = true; // Price rose but huge asks appeared -> Liquidity Sweep / Bull Trap!
     }
 
-    // 3. Strict anti-spam verification: Only broadcast if Liquidity Sweep detected, price moved > $100, or 30 mins elapsed
+    // 3. Strict persistent anti-repetition check (Redis + memory)
     const now = Date.now();
-    const priceDiff = Math.abs(btcPrice - lastBroadcastBtcPrice);
-    const timeDiffMinutes = (now - lastBroadcastTime) / (1000 * 60);
-
-    if (lastBroadcastBtcPrice > 0 && priceDiff < 100 && !liquiditySweepDetected && timeDiffMinutes < 30) {
-      return {
-        success: true,
-        status: 'skipped',
-        message: `No Liquidity Sweep, Order Flow shift, or major price movement detected (BTC change: $${priceDiff.toFixed(2)}, last broadcast: ${timeDiffMinutes.toFixed(1)} mins ago). Skipping Telegram broadcast to keep alerts professional.`
-      };
+    let cached = lastBroadcastMemoryCache;
+    if (!cached) {
+      const redisCached = await getCachedJson(CACHE_KEY, true) as BroadcastCache | null;
+      if (redisCached && typeof redisCached.btcPrice === 'number') {
+        cached = redisCached;
+        lastBroadcastMemoryCache = cached;
+      }
     }
 
-    lastBroadcastBtcPrice = btcPrice;
-    lastBroadcastTime = now;
+    if (cached) {
+      const priceDiff = Math.abs(btcPrice - cached.btcPrice);
+      const timeDiffMinutes = (now - cached.time) / (1000 * 60);
+      
+      // Check if there is a true NEW event vs just repeating the same status
+      const isMajorPriceMove = priceDiff >= 120;
+      const isNewLiquiditySweep = liquiditySweepDetected && !cached.liquiditySweepDetected;
+      const isOrderFlowShift = orderFlowStatus !== cached.orderFlowStatus;
+      const isScheduledTimeElapsed = timeDiffMinutes >= 45; // Regular periodic update every 45 mins
+
+      const isSignificantEvent = isMajorPriceMove || isNewLiquiditySweep || isOrderFlowShift || isScheduledTimeElapsed;
+
+      if (!isSignificantEvent) {
+        return {
+          success: true,
+          status: 'skipped',
+          reason: 'duplicate_prevention',
+          message: `No new market shifts or major price changes detected (BTC diff: $${priceDiff.toFixed(2)}, last broadcast: ${timeDiffMinutes.toFixed(1)} mins ago). Suppressing duplicate alert.`
+        };
+      }
+    }
 
     // 4. Perform AI impact analysis with callLlm - Elite prompt for short Roman Urdu summary
     const prompt = `You are an elite Institutional Crypto & Gold Quant Trader. Analyze the following live real-time spot prices and order book depth:
@@ -93,7 +119,29 @@ CRITICAL INSTRUCTIONS:
     const aiResult = await callLlm({
       messages: [{ role: 'user', content: prompt }],
     });
-    const aiAnalysis = aiResult?.content || `🚨 Market Update: BTC $${btcPrice}, Gold $${goldPrice}. Order Flow: ${orderFlowStatus}. Liquidity Sweep: ${liquiditySweepDetected ? 'Yes' : 'No'}. Market analysis abhi Roman Urdu me generate ho raha hai.`;
+    const aiAnalysis = aiResult?.content || `🚨 Market Update: BTC $${btcPrice}, Gold $${goldPrice}. Order Flow: ${orderFlowStatus}. Liquidity Sweep: ${liquiditySweepDetected ? 'Yes' : 'No'}.`;
+
+    // Second layer of anti-repetition: verify the AI didn't generate identical text to the last broadcast
+    const currentSnippet = aiAnalysis.slice(0, 40);
+    if (cached && cached.lastMessageSnippet === currentSnippet) {
+      return {
+        success: true,
+        status: 'skipped',
+        reason: 'identical_content',
+        message: 'AI generated identical analysis text to previous broadcast. Suppressing duplicate Telegram broadcast.'
+      };
+    }
+
+    // Update persistent cache before broadcasting
+    const newCache: BroadcastCache = {
+      btcPrice,
+      time: now,
+      orderFlowStatus,
+      liquiditySweepDetected,
+      lastMessageSnippet: currentSnippet
+    };
+    lastBroadcastMemoryCache = newCache;
+    await setCachedJson(CACHE_KEY, newCache, 7200, true);
 
     // 5. Prepare Telegram / Twilio REST API broadcast
     const telegramToken = (process.env.TELEGRAM_BOT_TOKEN || '8718094603:AAFgfSk5nl2D7Ura9mlc9ASBc2mo4FgSiaI').trim();
