@@ -13,7 +13,7 @@
   "crons": [
     {
       "path": "/api/market/v1/broadcast-whatsapp",
-      "schedule": "0 * * * *"
+      "schedule": "* * * * *"
     }
   ],
   "redirects": [
