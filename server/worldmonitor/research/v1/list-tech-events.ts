@@ -18,7 +18,7 @@ import type {
   TechEvent,
   TechEventCoords,
 } from '../../../../src/generated/server/worldmonitor/research/v1/service_server';
-import { CITY_COORDS } from '../../../../api/data/city-coords';
+import { CITY_COORDS } from '../../../../api/data/_city-coords';
 import { CHROME_UA, clampInt } from '../../../_shared/constants';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { getRelayBaseUrl, getRelayHeaders } from '../../../_shared/relay';
