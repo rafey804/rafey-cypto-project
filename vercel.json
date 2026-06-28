@@ -23,6 +23,13 @@
     { "source": "/welcome", "destination": "/", "permanent": true }
   ],
   "rewrites": [
+    { "source": "/api/market/v1/:rpc*", "destination": "/api/market/v1/[rpc].ts" },
+    { "source": "/api/health", "destination": "/api/health.js" },
+    { "source": "/api/geo", "destination": "/api/geo.js" },
+    { "source": "/api/reverse-geocode", "destination": "/api/reverse-geocode.js" },
+    { "source": "/api/widget-agent", "destination": "/api/widget-agent.ts" },
+    { "source": "/api/rss-proxy", "destination": "/api/rss-proxy.js" },
+    { "source": "/api/user-prefs", "destination": "/api/user-prefs.ts" },
     { "source": "/docs/:match*", "destination": "https://worldmonitor.mintlify.dev/docs/:match*" },
     { "source": "/", "has": [{ "type": "host", "value": "^(?:(?:www|tech|finance|commodity|happy|energy)\\.)?worldmonitor\\.app$" }], "destination": "/pro/welcome.html" },
     { "source": "/pro", "destination": "/pro/index.html" },
