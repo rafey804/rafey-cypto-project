@@ -24,12 +24,13 @@ export async function broadcastWhatsAppNews(
     let btcChange = 0;
     let goldPrice = 0, goldChange = 0;
 
-    const [binanceRes, mexcRes, bybitRes, kucoinRes, xauRes] = await Promise.allSettled([
+    const [binanceRes, mexcRes, bybitRes, kucoinRes, xauRes, mexcXauRes] = await Promise.allSettled([
       fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
       fetch('https://api.mexc.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
       fetch('https://api.bybit.com/v5/market/tickers?category=spot&symbol=BTCUSDT'),
       fetch('https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=BTC-USDT'),
-      fetch('https://min-api.cryptocompare.com/data/pricemultifull?fsyms=XAU&tsyms=USD')
+      fetch('https://min-api.cryptocompare.com/data/pricemultifull?fsyms=XAU&tsyms=USD'),
+      fetch('https://api.mexc.com/api/v3/ticker/24hr?symbol=XAUUSDT')
     ]);
 
     // Parse Binance BTC
@@ -65,8 +66,19 @@ export async function broadcastWhatsAppNews(
       } catch {}
     }
 
-    // Parse XAU/USDT Spot Gold
-    if (xauRes.status === 'fulfilled' && xauRes.value.ok) {
+    // Parse XAU/USDT Spot Gold from MEXC first (highest reliability for Spot XAU/USDT)
+    if (mexcXauRes.status === 'fulfilled' && mexcXauRes.value.ok) {
+      try {
+        const data = await mexcXauRes.value.json() as { lastPrice?: string, priceChangePercent?: string };
+        if (data.lastPrice) {
+          goldPrice = parseFloat(data.lastPrice);
+          goldChange = parseFloat(data.priceChangePercent || '0');
+        }
+      } catch {}
+    }
+
+    // Parse XAU/USDT Spot Gold from CryptoCompare if MEXC failed
+    if (!goldPrice && xauRes.status === 'fulfilled' && xauRes.value.ok) {
       try {
         const data = await xauRes.value.json() as { RAW?: { XAU?: { USD?: { PRICE?: number, CHANGEPCT24HOUR?: number } } } };
         if (data.RAW?.XAU?.USD) {
@@ -79,7 +91,7 @@ export async function broadcastWhatsAppNews(
     // Calculate Strong Consensus Global Price
     const validPrices = [binanceBtc, mexcBtc, bybitBtc, kucoinBtc].filter(p => p > 0);
     const consensusBtcPrice = validPrices.length > 0 ? validPrices.reduce((a, b) => a + b, 0) / validPrices.length : 63850.50;
-    if (!goldPrice) goldPrice = 2468.50; // Fallback Spot XAU/USDT price
+    if (!goldPrice) goldPrice = 2758.94; // Fallback Spot XAU/USDT price
 
     // Weekend Check for XAU/USDT Gold Market (Saturday & Sunday Off)
     const nowObj = new Date();

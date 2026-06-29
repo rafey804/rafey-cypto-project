@@ -121,6 +121,7 @@ export function getApiBaseUrl(): string {
 }
 
 function isWorldMonitorWebHost(hostname: string): boolean {
+  if (typeof window !== 'undefined' && hostname === window.location.hostname) return true;
   return hostname === 'worldmonitor.app'
     || hostname === 'www.worldmonitor.app'
     || hostname.endsWith('.worldmonitor.app');
@@ -141,13 +142,16 @@ export function getConfiguredWebApiBaseUrl(): string {
 
   const hostname = window.location?.hostname ?? '';
   if (!isWorldMonitorWebHost(hostname)) {
-    return '';
+    return window.location.origin;
   }
 
-  return DEFAULT_WEB_API_URL;
+  return window.location.origin;
 }
 
 export function getCanonicalApiOrigin(): string {
+  if (typeof window !== 'undefined' && !isDesktopRuntime()) {
+    return window.location.origin;
+  }
   return getConfiguredWebApiBaseUrl() || DEFAULT_WEB_API_URL;
 }
 
@@ -223,6 +227,7 @@ function isAppOriginUrl(urlStr: string): boolean {
   try {
     const u = new URL(urlStr);
     const host = u.hostname;
+    if (typeof window !== 'undefined' && host === window.location.hostname) return true;
     return APP_HOSTS.has(host) || host.endsWith('.worldmonitor.app');
   } catch {
     return false;
@@ -489,6 +494,7 @@ const ALLOWED_REDIRECT_HOSTS = /^https:\/\/([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*wor
 function isAllowedRedirectTarget(url: string): boolean {
   try {
     const parsed = new URL(url);
+    if (typeof window !== 'undefined' && parsed.origin === window.location.origin) return true;
     return ALLOWED_REDIRECT_HOSTS.test(parsed.origin) || parsed.hostname === 'localhost';
   } catch {
     return false;
@@ -577,6 +583,21 @@ export function installWebApiRedirect(): void {
     };
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      let targetUrlStr = '';
+      if (typeof input === 'string') targetUrlStr = input;
+      else if (input instanceof URL) targetUrlStr = input.href;
+      else if (input instanceof Request) targetUrlStr = input.url;
+
+      if (targetUrlStr.startsWith(`${DEFAULT_WEB_API_URL}/api/`)) {
+        const pathAndSearch = targetUrlStr.slice(DEFAULT_WEB_API_URL.length);
+        const enriched = await enrichInitForPremium(pathAndSearch, init);
+        const newTarget = `${API_BASE}${pathAndSearch}`;
+        if (input instanceof Request) {
+          return fetchWithRedirectFallback(new Request(newTarget, input), input.clone(), enriched ? withCredentials(enriched) : withCredentials(init));
+        }
+        return fetchWithRedirectFallback(newTarget, input, enriched ? withCredentials(enriched) : withCredentials(init));
+      }
+
       if (typeof input === 'string') {
         if (shouldRedirectPath(input)) {
           // Relative /api/... path — redirect to API base and inject auth.
