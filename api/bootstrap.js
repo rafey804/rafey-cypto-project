@@ -5,7 +5,7 @@ import { jsonResponse } from './_json-response.js';
 import { redisPipeline } from './_upstash-json.js';
 import { unwrapEnvelope } from './_seed-envelope.js';
 import { CII_RISK_SCORE_CACHE_KEYS } from './_cii-risk-cache-keys.js';
-import { getLocalMockDataForKey } from '../server/_shared/local-mock-data.ts';
+import { getLocalMockDataForKey } from './_local-mock-data.js';
 
 export const config = { runtime: 'edge' };
 
