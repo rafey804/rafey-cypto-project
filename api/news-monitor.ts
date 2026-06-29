@@ -78,6 +78,8 @@ function smcAnalyze(candles: Candle[], price: number): {
   obLevel: number;
   fvgLow: number;
   fvgHigh: number;
+  nearestSupport: number;
+  nearestResistance: number;
   hasFvg: boolean;
   hasOb: boolean;
   bos: boolean;
@@ -92,6 +94,7 @@ function smcAnalyze(candles: Candle[], price: number): {
   const reasons: string[] = [];
   if (candles.length < 5) return {
     direction: 'neutral', score: 0, obLevel: 0, fvgLow: 0, fvgHigh: 0,
+    nearestSupport: price, nearestResistance: price,
     hasFvg: false, hasOb: false, bos: false, choch: false, sweep: false,
     inDiscount: false, inPremium: false, swingHigh: price, swingLow: price, reasons
   };
@@ -102,6 +105,21 @@ function smcAnalyze(candles: Candle[], price: number): {
   const mid       = (swingHigh + swingLow) / 2;
   const inDiscount = price < mid;
   const inPremium  = price > mid;
+
+  // Find nearest local Support & Resistance (Fractal pivots)
+  let nearestSupport = swingLow;
+  let nearestResistance = swingHigh;
+  for (let i = 2; i < candles.length - 2; i++) {
+    const c = candles[i];
+    // Fractal High (Resistance)
+    if (c.high > candles[i-1].high && c.high > candles[i-2].high && c.high > candles[i+1].high && c.high > candles[i+2].high) {
+      if (c.high > price && c.high < nearestResistance) nearestResistance = c.high;
+    }
+    // Fractal Low (Support)
+    if (c.low < candles[i-1].low && c.low < candles[i-2].low && c.low < candles[i+1].low && c.low < candles[i+2].low) {
+      if (c.low < price && c.low > nearestSupport) nearestSupport = c.low;
+    }
+  }
 
   // FVG detection
   let hasFvg = false, fvgLow = 0, fvgHigh = 0;
@@ -191,6 +209,7 @@ function smcAnalyze(candles: Candle[], price: number): {
 
   return {
     direction, score: Math.min(10, score), obLevel, fvgLow, fvgHigh,
+    nearestSupport, nearestResistance,
     hasFvg, hasOb, bos, choch, sweep, inDiscount, inPremium,
     swingHigh, swingLow, reasons
   };
@@ -211,13 +230,41 @@ function buildTfSignal(
 
   const isLong = dir === 'long';
   let entry = price;
+  
+  // Refine entry to OB or FVG if it's close enough (Sniper Entry)
   if (smc.hasOb && Math.abs(smc.obLevel - price) / price < 0.004) entry = smc.obLevel;
   else if (smc.hasFvg && isLong && price <= smc.fvgHigh && price >= smc.fvgLow) entry = smc.fvgLow;
 
-  const sl  = isLong ? entry * (1 - riskPct) : entry * (1 + riskPct);
+  // ─── CHART-DRIVEN TARGETS (Support & Resistance) ───
+  let sl = 0;
+  let tp = 0;
+  
+  if (isLong) {
+    // SL just below nearest chart support (swing low)
+    sl = smc.nearestSupport * 0.9995; // 0.05% buffer below support
+    if (sl >= entry) sl = entry * (1 - riskPct); // Fallback if support is too tight
+    
+    // TP at nearest chart resistance (swing high)
+    tp = smc.nearestResistance;
+    if (tp <= entry) tp = entry + (entry - sl) * rrTarget; // Fallback if resistance is missing/too tight
+  } else {
+    // SL just above nearest chart resistance (swing high)
+    sl = smc.nearestResistance * 1.0005; // 0.05% buffer above resistance
+    if (sl <= entry) sl = entry * (1 + riskPct); // Fallback if resistance is too tight
+    
+    // TP at nearest chart support (swing low)
+    tp = smc.nearestSupport;
+    if (tp >= entry) tp = entry - (sl - entry) * rrTarget; // Fallback if support is missing
+  }
+
   const risk = Math.abs(entry - sl);
-  const tp  = isLong ? entry + risk * rrTarget : entry - risk * rrTarget;
-  const rr  = parseFloat(rrTarget.toFixed(1));
+  const reward = Math.abs(tp - entry);
+  const actualRR = risk > 0 ? parseFloat((reward / risk).toFixed(1)) : 0;
+
+  // Strict Chart Filter: If R:R is worse than 1.0, don't take the trade
+  if (actualRR < 1.0) {
+    return { tf, label, typeEmoji, direction: 'WAIT', entry, sl, tp, rr: actualRR, confluenceScore: smc.score, trend: 'Bad R:R (Resistance too close)', reasons: smc.reasons };
+  }
 
   const trendStr = smc.bos ? `${isLong ? '🟢' : '🔴'} BOS ${isLong ? 'Bullish' : 'Bearish'}`
                  : smc.choch ? `${isLong ? '🟢' : '🔴'} CHoCH Reversal`
@@ -229,7 +276,8 @@ function buildTfSignal(
     entry: parseFloat(entry.toFixed(2)),
     sl:    parseFloat(sl.toFixed(2)),
     tp:    parseFloat(tp.toFixed(2)),
-    rr, confluenceScore: parseFloat(smc.score.toFixed(1)),
+    rr:    actualRR, 
+    confluenceScore: parseFloat(smc.score.toFixed(1)),
     trend: trendStr,
     reasons: smc.reasons
   };
