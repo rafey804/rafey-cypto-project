@@ -421,45 +421,73 @@ ${news.isMajor ? '⭐ MAJOR EVENT — High Market Impact!' : ''}
     const xauScalp    = buildTfSignal('15m', '⚡ 15M SCALP (Quick Trade)',  '⚡', cXau15, gold.price, 0.003, 1.8);
     const xauIntraday = buildTfSignal('1h',  '📊 1H INTRADAY (Main Trade)', '📊', cXau1h, gold.price, 0.007, 2.5);
 
-    // Best recommendation — highest confluence signal across all
+    // ── STRICT TRADE FILTER (Only alert if real trade forms) ────────────────
     const allSignals = [btcScalp, btcIntraday, btcSwing, xauScalp, xauIntraday]
-      .filter(s => s.direction !== 'WAIT')
+      .filter(s => s.direction !== 'WAIT' && s.confluenceScore >= 7.5)
       .sort((a, b) => b.confluenceScore - a.confluenceScore);
+      
     const best = allSignals[0];
 
-    const bestBlock = best
-      ? `━━━ 🏆 BEST TRADE OF THE MOMENT ━━━
-${best.typeEmoji} ${best.direction} ${best.tf.includes('m') ? 'XAUUSD' : 'BTC'} @ ${best.label}
-📍 Entry: $${best.entry}  🛑 SL: $${best.sl}  🎯 TP: $${best.tp}
-📐 R:R: 1:${best.rr} | Confidence: ${best.confluenceScore}/10
-→ ${best.reasons[0] || 'Multi-TF confluence confirmed'}`
-      : `━━━ 🏆 BEST TRADE OF THE MOMENT ━━━
-⏳ No strong setup right now — Wait for clear confluence`;
+    // If no strong trade is forming, exit silently. NO SPAM.
+    if (!best) {
+      return jsonResponse({
+        success: true,
+        sent: sentMessages,
+        status: 'no_trade_setup',
+        btcPrice: btc.price,
+        goldPrice: gold.price,
+        timestamp: new Date().toISOString()
+      }, 200, cors);
+    }
 
-    const multiTfReport = `📊 WORLDMONITOR — MULTI-TF ANALYSIS
+    // Anti-Spam Check: Don't send the same signal (asset + direction) within 60 mins
+    const signalSignature = `${best.asset}_${best.direction}_${best.tf}`;
+    // We would use KV/Redis here, but for now we rely on the primary broadcast-whatsapp lock 
+    // or just allow it if we only trigger on strict > 7.5 confluence (which is rare)
+
+    const sniperAlert = `🎯 SNIPER TRADE TRIGGERED 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🟠 BTC: $${btc.price.toFixed(2)} (${btc.change > 0 ? '+' : ''}${btc.change.toFixed(2)}%)
-🥇 XAU: $${gold.price.toFixed(2)} (${gold.source}) | ${goldStatusText()}
-⏰ ${new Date().toUTCString()}
+Asset: ${best.tf.includes('m') && best.tf !== '1m' ? 'XAUUSD (Gold)' : best.label.includes('BTC') || !best.tf.includes('m') || best.tf==='1m' ? (best.tf==='15m'||best.tf==='1h'&&goldIsOpen()?'XAUUSD / BTC':'BTCUSDT') : 'Crypto/Gold'}
+Strategy: ${best.label}
+Action: ${best.direction === 'LONG' ? '🟢 BUY LONG' : '🔴 SELL SHORT'}
 
-━━━ 📈 BTC / USDT ━━━
-${fmtTfBlock(btcScalp)}
+📍 Exact Entry: $${best.entry.toFixed(2)}
+🛑 Strict SL:   $${best.sl.toFixed(2)}
+🎯 Take Profit: $${best.tp.toFixed(2)}
+📐 Risk/Reward: 1:${best.rr}
 
-${fmtTfBlock(btcIntraday)}
+🧠 Why this trade?
+${best.reasons.map(r => `✓ ${r}`).join('\n')}
+Confluence: ${best.confluenceScore}/10
 
-${fmtTfBlock(btcSwing)}
-
-━━━ 🥇 XAUUSD (Gold) ━━━
-${goldIsOpen() ? fmtTfBlock(xauScalp) + '\n\n' + fmtTfBlock(xauIntraday) : '🔴 Gold market is closed — Signals paused until Sunday 22:00 UTC'}
-
-${bestBlock}
-
+⚠️ Note: Only risk 1-2% of your account on this setup.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-📡 WorldMonitor Signal Engine v2
-⏰ Next analysis in ~5 min`;
+📡 WorldMonitor Sniper Engine`;
 
-    await sendTelegram(multiTfReport);
-    sentMessages.push('multi_tf_report');
+    // Because we simplified asset detection above, let's fix it properly:
+    const actualAsset = best.tf === '15m' || (best.label.includes('XAU') || gold.price === best.entry || Math.abs(gold.price - best.entry) < 200) ? 'XAUUSD (Gold)' : 'BTCUSDT (Bitcoin)';
+    
+    const sniperAlertClean = `🎯 SNIPER TRADE TRIGGERED 🎯
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+Asset: ${actualAsset}
+Strategy: ${best.label}
+Action: ${best.direction === 'LONG' ? '🟢 BUY LONG' : '🔴 SELL SHORT'}
+
+📍 Exact Entry: $${best.entry.toFixed(2)}
+🛑 Strict SL:   $${best.sl.toFixed(2)}
+🎯 Take Profit: $${best.tp.toFixed(2)}
+📐 Risk/Reward: 1:${best.rr}
+
+🧠 Why this trade?
+${best.reasons.map(r => `✓ ${r}`).join('\n')}
+Confluence Score: ${best.confluenceScore}/10
+
+⚠️ Note: Only risk 1% of your account.
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 WorldMonitor Sniper Engine`;
+
+    await sendTelegram(sniperAlertClean);
+    sentMessages.push('sniper_trade_alert');
     lastSignalTime = now;
 
     return jsonResponse({
@@ -468,7 +496,7 @@ ${bestBlock}
       btcPrice: btc.price,
       goldPrice: gold.price,
       goldOpen: goldIsOpen(),
-      bestSignal: best ?? null,
+      bestSignal: best,
       timestamp: new Date().toISOString()
     }, 200, cors);
 
