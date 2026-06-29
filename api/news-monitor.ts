@@ -226,7 +226,7 @@ function buildTfSignal(
   const dir = smc.direction;
 
   if (dir === 'neutral' || smc.score < 4) {
-    return { tf, label, typeEmoji, direction: 'WAIT', entry: price, sl: 0, tp: 0, rr: 0, confluenceScore: smc.score, trend: 'No clear setup', reasons: smc.reasons };
+    return { tf, label, typeEmoji, direction: 'WAIT', entry: price, sl: 0, tp: 0, rr: 0, confluenceScore: smc.score, trend: 'No clear setup', reasons: smc.reasons, smc };
   }
 
   const isLong = dir === 'long';
@@ -485,13 +485,13 @@ ${news.isMajor ? '⭐ MAJOR EVENT — High Market Impact!' : ''}
 
     // ── MULTI-TIMEFRAME SIGNAL REPORT ─────────────────────────────────────────
     // BTC signals
-    const btcScalp    = buildTfSignal('1m',  '⚡ 1M SCALP (Quick Trade)',   '⚡', c1m,  btc.price, 0.003, 2.0);
-    const btcIntraday = buildTfSignal('1h',  '📊 1H INTRADAY (Main Trade)', '📊', c1h,  btc.price, 0.007, 2.5);
-    const btcSwing    = buildTfSignal('4h',  '🌊 4H SWING (Big Trade)',     '🌊', c4h,  btc.price, 0.015, 3.5);
+    const btcScalp    = buildTfSignal('1m',  '⚡ BTC 1M SCALP',   '⚡', c1m,  btc.price, 0.003, 2.0);
+    const btcIntraday = buildTfSignal('1h',  '📊 BTC 1H INTRADAY', '📊', c1h,  btc.price, 0.007, 2.5);
+    const btcSwing    = buildTfSignal('4h',  '🌊 BTC 4H SWING',     '🌊', c4h,  btc.price, 0.015, 3.5);
 
     // Gold signals
-    const xauScalp    = buildTfSignal('15m', '⚡ 15M SCALP (Quick Trade)',  '⚡', cXau15, gold.price, 0.003, 1.8);
-    const xauIntraday = buildTfSignal('1h',  '📊 1H INTRADAY (Main Trade)', '📊', cXau1h, gold.price, 0.007, 2.5);
+    const xauScalp    = buildTfSignal('15m', '⚡ XAU 15M SCALP',  '⚡', cXau15, gold.price, 0.003, 1.8);
+    const xauIntraday = buildTfSignal('1h',  '📊 XAU 1H INTRADAY', '📊', cXau1h, gold.price, 0.007, 2.5);
 
     // ── STRICT TRADE FILTER (Only alert if real trade forms) ────────────────
     const allSignals = [btcScalp, btcIntraday, btcSwing, xauScalp, xauIntraday]

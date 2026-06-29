@@ -402,8 +402,8 @@ export default async function handler(req: Request): Promise<Response> {
           // Process Matrix & Scanner
           if (d.allTfs) {
             this.matrixTfs = d.allTfs.map(s => {
-              const isBull = s.trend.toLowerCase().includes('bull') || s.direction === 'LONG';
-              const isBear = s.trend.toLowerCase().includes('bear') || s.direction === 'SHORT';
+              const isBull = s.trend.toLowerCase().includes('bull') || s.direction === 'LONG' || s.smc?.direction === 'long';
+              const isBear = s.trend.toLowerCase().includes('bear') || s.direction === 'SHORT' || s.smc?.direction === 'short';
               let trendStr = 'NEUTRAL', color = 'text-slate-500', icon = 'minus';
               
               if (isBull) { trendStr = 'BULLISH'; color = 'text-accent'; icon = 'arrow-up-right'; }
@@ -414,7 +414,7 @@ export default async function handler(req: Request): Promise<Response> {
 
             // Extract Scanner data (use 1H BTC and 1H XAU as base)
             const btc1h = d.allTfs.find(s => s.tf === '1h' && s.label.includes('BTC'));
-            const xau1h = d.allTfs.find(s => s.tf === '1h' && s.label.includes('INTRADAY')); // XAU intraday
+            const xau1h = d.allTfs.find(s => s.tf === '1h' && s.label.includes('XAU')); 
 
             if (btc1h?.smc) this.scannerData.BTC = this.extractScannerData(btc1h.smc);
             if (xau1h?.smc) this.scannerData.GOLD = this.extractScannerData(xau1h.smc);
