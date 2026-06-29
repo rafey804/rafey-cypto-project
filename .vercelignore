@@ -21,11 +21,11 @@ target/
 
 # ============================================================
 # Vercel Hobby Plan — 12 Serverless Function Limit
-# KEEP: The 12 critical API functions listed in vercel.json
+# KEEP (NOT ignored):
 #   1.  api/bootstrap.js
 #   2.  api/health.js
 #   3.  api/market/v1/[rpc].ts
-#   4.  api/geo.js
+#   4.  api/news-monitor.ts       ← NEW: real-time news + multi-TF signals
 #   5.  api/rss-proxy.js
 #   6.  api/telegram-feed.js
 #   7.  api/polymarket.js
@@ -88,8 +88,8 @@ api/create-checkout.ts
 api/customer-portal.ts
 api/download.js
 api/fwdstart.js
+api/geo.js
 api/gpsjam.js
-api/health.js
 api/invalidate-user-api-key-cache.ts
 api/mcp-proxy.ts
 api/mcp.ts
