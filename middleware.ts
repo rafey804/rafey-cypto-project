@@ -32,6 +32,7 @@ const PUBLIC_API_PATHS = new Set([
   '/api/health',
   '/api/seed-contract-probe',
   '/api/internal/brief-why-matters',
+  '/api/news-monitor', // Allow GitHub Actions cron to ping without 403 Forbidden
 ]);
 
 const SOCIAL_IMAGE_UA =
