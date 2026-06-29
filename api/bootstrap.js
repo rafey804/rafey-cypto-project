@@ -5,6 +5,7 @@ import { jsonResponse } from './_json-response.js';
 import { redisPipeline } from './_upstash-json.js';
 import { unwrapEnvelope } from './_seed-envelope.js';
 import { CII_RISK_SCORE_CACHE_KEYS } from './_cii-risk-cache-keys.js';
+import { getLocalMockDataForKey } from '../server/_shared/local-mock-data.ts';
 
 export const config = { runtime: 'edge' };
 
@@ -239,7 +240,6 @@ async function getCachedJsonBatch(keys) {
   }
 
   try {
-    const { getLocalMockDataForKey } = await import('../server/_shared/local-mock-data.ts');
     for (const k of keys) {
       if (!result.has(k)) {
         const mockVal = getLocalMockDataForKey(k);
