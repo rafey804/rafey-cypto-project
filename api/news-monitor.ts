@@ -264,7 +264,7 @@ function buildTfSignal(
 
   // Strict Chart Filter: If R:R is worse than 1.0, don't take the trade
   if (actualRR < 1.0) {
-    return { tf, label, typeEmoji, direction: 'WAIT', entry, sl, tp, rr: actualRR, confluenceScore: smc.score, trend: 'Bad R:R (Resistance too close)', reasons: smc.reasons };
+    return { tf, label, typeEmoji, direction: 'WAIT', entry, sl, tp, rr: actualRR, confluenceScore: smc.score, trend: 'Bad R:R (Resistance too close)', reasons: smc.reasons, smc };
   }
 
   const trendStr = smc.bos ? `${isLong ? '🟢' : '🔴'} BOS ${isLong ? 'Bullish' : 'Bearish'}`
