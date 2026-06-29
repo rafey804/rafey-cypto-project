@@ -33,7 +33,7 @@ target/
 #   9.  api/latest-brief.ts
 #  10.  api/widget-agent.ts
 #  11.  api/user-prefs.ts
-#  12.  api/tradingview-webhook.ts
+#  12.  api/sniper-pro.ts         +? NEW: SMC Pro Dashboard HTML UI
 # ============================================================
 
 # Exclude ALL subdirectory API routes (not needed on Hobby plan)
@@ -107,3 +107,4 @@ api/story.js
 api/symbol-search.ts
 api/version.js
 api/wm-session.js
+api/tradingview-webhook.ts

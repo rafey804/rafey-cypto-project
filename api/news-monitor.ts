@@ -29,6 +29,7 @@ interface TfSignal {
   confluenceScore: number;
   trend: string;
   reasons: string[];
+  smc?: ReturnType<typeof smcAnalyze>;
 }
 
 // ─── In-memory last-seen news cache (persists within same Edge instance) ──────
@@ -279,7 +280,8 @@ function buildTfSignal(
     rr:    actualRR, 
     confluenceScore: parseFloat(smc.score.toFixed(1)),
     trend: trendStr,
-    reasons: smc.reasons
+    reasons: smc.reasons,
+    smc
   };
 }
 
@@ -404,11 +406,16 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
-  if (req.method === 'GET') {
-    return jsonResponse({ status: 'ok', lastSignalTime, lastSeenNewsId, goldOpen: goldIsOpen() }, 200, cors);
+  // For Dashboard GET Polling: Require a secret key
+  const isDashboardPoll = req.method === 'GET';
+  if (isDashboardPoll) {
+    const url = new URL(req.url);
+    if (url.searchParams.get('key') !== 'sniper123') {
+      return jsonResponse({ error: 'Unauthorized' }, 401, cors);
+    }
+  } else if (req.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed' }, 405, cors);
   }
-
-  if (req.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
 
   const now = Date.now();
 
@@ -493,14 +500,30 @@ ${news.isMajor ? '⭐ MAJOR EVENT — High Market Impact!' : ''}
       
     const best = allSignals[0];
 
-    // If no strong trade is forming, exit silently. NO SPAM.
-    if (!best) {
+    // If no strong trade is forming, exit silently for POST (cron).
+    // For GET (Dashboard), return everything so it can render the live state.
+    if (!best && !isDashboardPoll) {
       return jsonResponse({
         success: true,
         sent: sentMessages,
         status: 'no_trade_setup',
         btcPrice: btc.price,
         goldPrice: gold.price,
+        timestamp: new Date().toISOString()
+      }, 200, cors);
+    }
+
+    if (isDashboardPoll) {
+      // Return full state for the dashboard to render (no telegram)
+      return jsonResponse({
+        success: true,
+        btcPrice: btc.price,
+        goldPrice: gold.price,
+        goldOpen: goldIsOpen(),
+        news,
+        signals: allSignals,
+        allTfs: [btcScalp, btcIntraday, btcSwing, xauScalp, xauIntraday], // includes WAIT signals
+        bestSignal: best || null,
         timestamp: new Date().toISOString()
       }, 200, cors);
     }

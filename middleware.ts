@@ -33,6 +33,7 @@ const PUBLIC_API_PATHS = new Set([
   '/api/seed-contract-probe',
   '/api/internal/brief-why-matters',
   '/api/news-monitor', // Allow GitHub Actions cron to ping without 403 Forbidden
+  '/api/sniper-pro',   // Allow direct browser access to the Sniper Pro Dashboard
 ]);
 
 const SOCIAL_IMAGE_UA =
