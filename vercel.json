@@ -5,7 +5,7 @@
     { "src": "api/bootstrap.js", "use": "@vercel/node" },
     { "src": "api/health.js", "use": "@vercel/node" },
     { "src": "api/geo.js", "use": "@vercel/node" },
-    { "src": "api/reverse-geocode.js", "use": "@vercel/node" },
+    { "src": "api/tradingview-webhook.js", "use": "@vercel/node" },
     { "src": "api/widget-agent.ts", "use": "@vercel/node" },
     { "src": "api/rss-proxy.js", "use": "@vercel/node" },
     { "src": "api/user-prefs.ts", "use": "@vercel/node" },
