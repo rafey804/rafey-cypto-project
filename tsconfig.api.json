@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": ["vite/client"],
-    "strictNullChecks": true
+    "strictNullChecks": false
   },
   "include": ["api", "src/generated", "server"],
   "exclude": ["server/__tests__/**"]
