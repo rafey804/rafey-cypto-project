@@ -19,7 +19,24 @@ target/
 # Common local artifacts
 .DS_Store
 
-# Exclude unused API routes to stay well within Vercel Hobby 12 function limit
+# ============================================================
+# Vercel Hobby Plan — 12 Serverless Function Limit
+# KEEP: The 12 critical API functions listed in vercel.json
+#   1.  api/bootstrap.js
+#   2.  api/health.js
+#   3.  api/market/v1/[rpc].ts
+#   4.  api/geo.js
+#   5.  api/rss-proxy.js
+#   6.  api/telegram-feed.js
+#   7.  api/polymarket.js
+#   8.  api/chat-analyst.ts
+#   9.  api/latest-brief.ts
+#  10.  api/widget-agent.ts
+#  11.  api/user-prefs.ts
+#  12.  api/tradingview-webhook.ts
+# ============================================================
+
+# Exclude ALL subdirectory API routes (not needed on Hobby plan)
 api/aviation/
 api/brief/
 api/climate/
@@ -37,9 +54,12 @@ api/intelligence/
 api/internal/
 api/leads/
 api/maritime/
+api/me/
 api/military/
+api/mcp/
 api/natural/
 api/news/
+api/oauth/
 api/positive-events/
 api/prediction/
 api/radiation/
@@ -56,21 +76,21 @@ api/supply-chain/
 api/thermal/
 api/trade/
 api/unrest/
+api/user/
 api/v2/
 api/webcam/
 api/wildfire/
 api/youtube/
-api/bootstrap.js
+
+# Exclude top-level API files NOT in the 12-function keep-list
 api/cache-purge.js
-api/chat-analyst.ts
 api/create-checkout.ts
 api/customer-portal.ts
 api/download.js
 api/fwdstart.js
-api/geo.js
 api/gpsjam.js
+api/health.js
 api/invalidate-user-api-key-cache.ts
-api/latest-brief.ts
 api/mcp-proxy.ts
 api/mcp.ts
 api/notification-channels.ts
@@ -79,16 +99,11 @@ api/oauth-protected-resource.ts
 api/og-story.js
 api/opensky.js
 api/oref-alerts.js
-api/polymarket.js
 api/product-catalog.js
 api/reverse-geocode.js
-api/rss-proxy.js
 api/seed-contract-probe.ts
 api/seed-health.js
 api/story.js
 api/symbol-search.ts
-api/telegram-feed.js
-api/user-prefs.ts
 api/version.js
-api/widget-agent.ts
 api/wm-session.js
