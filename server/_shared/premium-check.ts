@@ -16,6 +16,7 @@ import { validateUserApiKey } from './user-api-key';
  */
 export async function isCallerPremium(request: Request): Promise<boolean> {
   return true;
+  /*
   // Internal-MCP context: trusted markers are set by the gateway AFTER an
   // HMAC verification on `X-WM-MCP-Internal` succeeds. Inbound copies of
   // these headers are stripped at the gateway entry (defense-in-depth) so
@@ -105,4 +106,5 @@ export async function isCallerPremium(request: Request): Promise<boolean> {
     }
   }
   return false;
+  */
 }
