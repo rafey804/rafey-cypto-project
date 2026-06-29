@@ -225,7 +225,12 @@ async function getCachedJsonBatch(keys) {
   if (keys.length === 0) return result;
 
   const pipeline = keys.map((k) => ['GET', k]);
-  const data = await redisPipeline(pipeline, 3000);
+  let data = null;
+  try {
+    data = await redisPipeline(pipeline, 3000);
+  } catch (err) {
+    console.warn('[bootstrap] redisPipeline failed/timed out, falling back to mock data:', err);
+  }
   if (data) {
     for (let i = 0; i < keys.length; i++) {
       const raw = data[i]?.result;

@@ -13,7 +13,7 @@ export function getLocalMockDataForKey(key: string): unknown | null {
   if (key.includes('market:commodities-bootstrap:v1')) {
     return {
       quotes: [
-        { symbol: 'GC=F', name: 'Gold Futures', price: 2754.30 + jitter1, change: 14.50 + jitter3, changePercent: 0.53 + (jitter3 / 100), volume: 154200, lastUpdate: now },
+        { symbol: 'GC=F', name: 'Gold Spot XAUUSD', price: 4063.78 + jitter1, change: 2.09 + jitter3, changePercent: 0.05 + (jitter3 / 100), volume: 154200, lastUpdate: now },
         { symbol: 'SI=F', name: 'Silver Futures', price: 34.25 + jitter3, change: 0.45, changePercent: 1.33, volume: 82100, lastUpdate: now },
         { symbol: 'CL=F', name: 'Crude Oil WTI', price: 71.85 + jitter3, change: -0.35, changePercent: -0.48, volume: 210400, lastUpdate: now },
         { symbol: 'BZ=F', name: 'Brent Crude Oil', price: 75.40 + jitter3, change: -0.25, changePercent: -0.33, volume: 185300, lastUpdate: now },
