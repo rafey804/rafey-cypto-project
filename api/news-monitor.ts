@@ -299,23 +299,40 @@ ${dir} | Confidence: ${s.confluenceScore}/10 [${confBar}]
 ${topReasons}`;
 }
 
+// ─── Fetch Yahoo Finance Klines (for Gold) ────────────────────────────────────
+async function fetchYahooKlines(symbol: string, interval: string): Promise<Candle[]> {
+  try {
+    // interval can be 1m, 15m, 1h
+    const range = interval === '1m' ? '1d' : interval === '15m' ? '5d' : '1mo';
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=${range}`, { signal: AbortSignal.timeout(5000) });
+    const d = await r.json() as any;
+    const res = d.chart.result[0];
+    const t = res.timestamp || [];
+    const q = res.indicators.quote[0];
+    const candles: Candle[] = [];
+    for (let i = 0; i < t.length; i++) {
+      if (q.open[i] != null && q.close[i] != null) {
+        candles.push({
+          open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume[i] || 0
+        });
+      }
+    }
+    return candles.slice(-30);
+  } catch { return []; }
+}
+
 // ─── Fetch Gold price ─────────────────────────────────────────────────────────
 async function fetchGold(): Promise<{ price: number; change: number; source: string }> {
-  const attempts = [
-    () => fetch('https://api.mexc.com/api/v3/ticker/24hr?symbol=XAUUSDT', { signal: AbortSignal.timeout(4000) })
-      .then(r => r.json() as Promise<{ lastPrice?: string; priceChangePercent?: string }>)
-      .then(d => ({ price: parseFloat(d.lastPrice || '0'), change: parseFloat(d.priceChangePercent || '0'), source: 'MEXC' })),
-    () => fetch('https://api.bybit.com/v5/market/tickers?category=spot&symbol=XAUUSDT', { signal: AbortSignal.timeout(4000) })
-      .then(r => r.json() as Promise<{ result?: { list?: { lastPrice?: string }[] } }>)
-      .then(d => ({ price: parseFloat(d.result?.list?.[0]?.lastPrice || '0'), change: 0, source: 'Bybit' })),
-    () => fetch('https://min-api.cryptocompare.com/data/pricemultifull?fsyms=XAU&tsyms=USD', { signal: AbortSignal.timeout(5000) })
-      .then(r => r.json() as Promise<{ RAW?: { XAU?: { USD?: { PRICE?: number; CHANGEPCT24HOUR?: number } } } }>)
-      .then(d => ({ price: d.RAW?.XAU?.USD?.PRICE || 0, change: d.RAW?.XAU?.USD?.CHANGEPCT24HOUR || 0, source: 'CryptoCompare' }))
-  ];
-  for (const fn of attempts) {
-    try { const r = await fn(); if (r.price > 1000 && r.price < 10000) return r; } catch { /**/ }
+  try {
+    const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=2d', { signal: AbortSignal.timeout(4000) });
+    const d = await r.json() as any;
+    const price = d.chart.result[0].meta.regularMarketPrice;
+    const prev = d.chart.result[0].meta.chartPreviousClose;
+    const change = prev ? ((price - prev) / prev) * 100 : 0;
+    return { price, change, source: 'Yahoo (COMEX)' };
+  } catch {
+    return { price: 4040.12, change: 0, source: 'Fallback' };
   }
-  return { price: 4040.12, change: 0, source: 'Fallback' };
 }
 
 // ─── Fetch BTC consensus ──────────────────────────────────────────────────────
@@ -406,8 +423,8 @@ export default async function handler(req: Request): Promise<Response> {
       fetchKlines('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m', 30),
       fetchKlines('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h', 25),
       fetchKlines('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h', 25),
-      fetchKlines('https://api.mexc.com/api/v3/klines?symbol=XAUUSDT&interval=15m', 25),
-      fetchKlines('https://api.mexc.com/api/v3/klines?symbol=XAUUSDT&interval=1h',  25),
+      fetchYahooKlines('GC=F', '15m'),
+      fetchYahooKlines('GC=F', '1h'),
     ]);
 
     const gold   = goldData.status  === 'fulfilled' ? goldData.value  : { price: 4040.12, change: 0, source: 'Fallback' };
